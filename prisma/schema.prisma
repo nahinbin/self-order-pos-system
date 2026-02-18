@@ -1,0 +1,158 @@
+// Multi-tenant restaurant ordering SaaS - single shared PostgreSQL database
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Restaurant {
+  id        Int      @id @default(autoincrement())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tables             RestaurantTable[]
+  menuItems          MenuItem[]
+  orders             Order[]
+  foodDictionary     FoodDictionaryItem[]
+  unavailableEntries UnavailableEntry[]
+}
+
+model FoodDictionaryItem {
+  id           Int      @id @default(autoincrement())
+  restaurantId Int
+  name         String
+  createdAt    DateTime @default(now())
+
+  restaurant         Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  unavailableEntries UnavailableEntry[]
+
+  @@unique([restaurantId, name])
+  @@index([restaurantId])
+  @@index([restaurantId, name])
+  @@map("food_dictionary")
+}
+
+model UnavailableEntry {
+  id                   Int      @id @default(autoincrement())
+  restaurantId         Int
+  foodDictionaryItemId Int
+  createdAt            DateTime @default(now())
+
+  restaurant         Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  foodDictionaryItem FoodDictionaryItem @relation(fields: [foodDictionaryItemId], references: [id], onDelete: Cascade)
+
+  @@unique([restaurantId, foodDictionaryItemId])
+  @@index([restaurantId])
+  @@map("unavailable_entries")
+}
+
+model RestaurantTable {
+  id           Int      @id @default(autoincrement())
+  restaurantId Int
+  name         String
+  createdAt    DateTime @default(now())
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orders     Order[]
+
+  @@index([restaurantId])
+  @@map("tables")
+}
+
+model MenuItem {
+  id           Int      @id @default(autoincrement())
+  restaurantId Int
+  name         String
+  description String?
+  imageUrl    String?
+  price       Decimal  @db.Decimal(10, 2)
+  category     String
+  available    Int      @default(1)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  restaurant   Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  optionGroups OptionGroup[]
+  orderItems   OrderItem[]
+
+  @@index([restaurantId])
+  @@index([restaurantId, category])
+}
+
+model OptionGroup {
+  id            Int     @id @default(autoincrement())
+  menuItemId    Int
+  name          String
+  required      Int     @default(1)
+  minSelections Int     @default(1)
+  maxSelections Int     @default(1)
+  sortOrder     Int     @default(0)
+
+  menuItem MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  options  ItemOption[]
+
+  @@index([menuItemId])
+}
+
+model ItemOption {
+  id            Int     @id @default(autoincrement())
+  optionGroupId Int
+  name          String
+  priceModifier Decimal @default(0) @db.Decimal(10, 2)
+  isDefault     Int     @default(0)
+  sortOrder     Int     @default(0)
+
+  optionGroup OptionGroup @relation(fields: [optionGroupId], references: [id], onDelete: Cascade)
+
+  @@index([optionGroupId])
+}
+
+model Order {
+  id             Int      @id @default(autoincrement())
+  restaurantId   Int
+  tableId        Int
+  orderType      String   // dine_in | takeaway
+  status         String   @default("pending")
+  paymentMethod  String?
+  paymentStatus  String   @default("pending")
+  total          Decimal  @db.Decimal(10, 2)
+  customerNotes  String?
+  createdAt      DateTime @default(now())
+  /// When the kitchen started preparing this order
+  preparingStartedAt     DateTime?
+  /// When the order was marked as served
+  servedAt               DateTime?
+  /// How long it took from preparing start (or creation) until served, in whole seconds
+  preparingDurationSeconds Int?
+
+  restaurant Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table      RestaurantTable  @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  items      OrderItem[]
+
+  @@index([restaurantId])
+  @@index([restaurantId, createdAt(sort: Desc)])
+  @@index([tableId])
+  @@index([status])
+}
+
+model OrderItem {
+  id          Int     @id @default(autoincrement())
+  orderId     Int
+  menuItemId  Int
+  name        String
+  price       Decimal  @db.Decimal(10, 2)
+  quantity    Int
+  notes       String?
+  optionsJson String?
+
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([menuItemId])
+}
