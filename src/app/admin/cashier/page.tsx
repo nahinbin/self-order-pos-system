@@ -298,7 +298,7 @@ export default function CashierPage() {
             (a, b) =>
               a.groupName.localeCompare(b.groupName) ||
               a.choiceName.localeCompare(b.choiceName) ||
-              String((a.quantity ?? 1) - (b.quantity ?? 1))
+              (a.quantity ?? 1) - (b.quantity ?? 1)
           )
         )
       : "";

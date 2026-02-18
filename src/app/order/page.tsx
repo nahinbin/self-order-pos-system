@@ -149,7 +149,7 @@ function OrderPageContent() {
   };
 
   const optionsKey = (opts: SelectedOption[] | undefined) =>
-    opts?.length ? JSON.stringify([...opts].sort((a, b) => a.groupName.localeCompare(b.groupName) || a.choiceName.localeCompare(b.choiceName) || String((a.quantity ?? 1) - (b.quantity ?? 1)))) : "";
+    opts?.length ? JSON.stringify([...opts].sort((a, b) => a.groupName.localeCompare(b.groupName) || a.choiceName.localeCompare(b.choiceName) || (a.quantity ?? 1) - (b.quantity ?? 1))) : "";
 
   const addToCartWithOptions = (item: MenuItem, selected: SelectedOption[], qty: number) => {
     const unitPrice = item.price + selected.reduce((s, o) => s + o.priceModifier * (o.quantity ?? 1), 0);

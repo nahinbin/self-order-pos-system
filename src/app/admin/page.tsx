@@ -100,7 +100,7 @@ export default function AdminDashboardPage() {
     [orders]
   );
   const activeKitchenCount = useMemo(
-    () => orders.filter((o) => (o.status === "pending" || o.status === "preparing") && o.status !== "cancelled").length,
+    () => orders.filter((o) => o.status === "pending" || o.status === "preparing").length,
     [orders]
   );
 
