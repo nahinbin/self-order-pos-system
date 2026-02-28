@@ -1,0 +1,11 @@
+# Render blueprint – ensures correct build and start for Next.js + custom server
+services:
+  - type: web
+    name: self-order-pos-system
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Add DATABASE_URL in Render Dashboard → Environment (secret)
