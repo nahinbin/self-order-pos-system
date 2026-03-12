@@ -24,9 +24,19 @@ app.prepare()
     io.on("connection", (socket) => {
       const restaurantId =
         socket.handshake.auth?.restaurantId ?? socket.handshake.query?.restaurantId;
-      if (restaurantId != null) {
-        socket.join(`restaurant:${restaurantId}`);
+      const room =
+        restaurantId != null ? `restaurant:${restaurantId}` : null;
+
+      if (room) {
+        socket.join(room);
       }
+
+      // Allow privileged clients (e.g. cashier) to broadcast lightweight
+      // customer display updates to all screens for the same restaurant.
+      socket.on("customer-display:update", (payload) => {
+        if (!room) return;
+        io.to(room).emit("customer-display:update", payload);
+      });
     });
 
     const g = typeof globalThis !== "undefined" ? globalThis : global;

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useId } from "react";
+import { useState, useId, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { DictionaryPicker } from "@/components/DictionaryPicker";
 
-const CATEGORIES = ["Mains", "Starters", "Sides", "Salads", "Drinks", "Add-ons"];
+type CategoryOption = { id: number; name: string };
 
 type DraftOption = {
   tempId: string;
@@ -31,7 +31,7 @@ export default function NewMenuItemPage() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [price, setPrice] = useState("");
-  const [category, setCategory] = useState("Mains");
+  const [category, setCategory] = useState("");
   const [available, setAvailable] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,9 +46,34 @@ export default function NewMenuItemPage() {
   const [newOptionPrice, setNewOptionPrice] = useState("0");
   const [newOptionDefault, setNewOptionDefault] = useState(false);
 
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [dictPickerOpen, setDictPickerOpen] = useState(false);
   /** "product" | "new_option" | { groupTempId, optionTempId } for editing existing option */
   const [dictPickerTarget, setDictPickerTarget] = useState<"product" | "new_option" | { groupTempId: string; optionTempId: string } | null>(null);
+
+  const fetchCategories = useCallback(async () => {
+    setCategoriesLoading(true);
+    try {
+      const res = await fetch("/api/admin/dictionary?type=category");
+      const data = await res.json().catch(() => []);
+      setCategories(Array.isArray(data) ? data : []);
+    } catch {
+      setCategories([]);
+    } finally {
+      setCategoriesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCategories();
+  }, [fetchCategories]);
+
+  useEffect(() => {
+    if (!categoriesLoading && categories.length > 0 && !category) {
+      setCategory(categories[0].name);
+    }
+  }, [categoriesLoading, categories, category]);
 
   const openDictionary = (target: "product" | "new_option" | { groupTempId: string; optionTempId: string }) => {
     setDictPickerTarget(target);
@@ -142,6 +167,10 @@ export default function NewMenuItemPage() {
     const p = parseFloat(price);
     if (!name.trim()) {
       setError("Name is required");
+      return;
+    }
+    if (!category.trim()) {
+      setError("Select a category from the dictionary. Add categories in Dictionary first if needed.");
       return;
     }
     if (isNaN(p) || p < 0) {
@@ -298,16 +327,26 @@ export default function NewMenuItemPage() {
         </div>
         <div className="flex flex-wrap items-center gap-4">
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Category</label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-stone-300 text-stone-800"
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Category * (from dictionary)</label>
+            <p className="text-xs text-stone-500 mb-1.5">Add categories (e.g. Mains, Drinks) in the Dictionary first, then select one here.</p>
+            {categoriesLoading ? (
+              <div className="px-3 py-2 text-stone-500 text-sm">Loading categories…</div>
+            ) : categories.length === 0 ? (
+              <div className="px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm">
+                No categories yet. <Link href="/admin/dictionary" className="underline font-medium">Add categories in Dictionary</Link> first (e.g. Mains, Drinks).
+              </div>
+            ) : (
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-stone-300 text-stone-800"
+              >
+                <option value="">Select category</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+            )}
           </div>
           <label className="flex items-center gap-2 mt-6">
             <input
@@ -533,6 +572,7 @@ export default function NewMenuItemPage() {
         onSelect={onDictionarySelect}
         title="Food dictionary"
         placeholder="Search or add (e.g. burger, beef patty, buns)..."
+        filterType="item"
       />
     </div>
   );

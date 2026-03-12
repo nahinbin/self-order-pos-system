@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { io, type Socket } from "socket.io-client";
+import ShiftGate from "@/components/ShiftGate";
 
 type ItemOption = { id: number; name: string; price_modifier: number; is_default: number; unavailable?: boolean };
 type OptionGroup = { id: number; name: string; required: number; min_selections: number; max_selections: number; options?: ItemOption[] };
@@ -47,6 +48,25 @@ type Order = {
   created_at: string;
   items?: OrderItem[];
 };
+
+type CustomerDisplayItem = {
+  name: string;
+  quantity: number;
+  unit_price: number;
+  options_label?: string | null;
+};
+
+type CustomerDisplayPayload =
+  | { mode: "idle" }
+  | {
+      mode: "summary" | "processing" | "result";
+      total: number;
+      orderId?: number | null;
+      paymentMethod?: PaymentMethod;
+      success?: boolean;
+      message?: string | null;
+      items?: CustomerDisplayItem[];
+    };
 
 function money(n: number): string {
   const v = Number.isFinite(n) ? n : 0;
@@ -165,6 +185,25 @@ export default function CashierPage() {
       setTablesLoading(false);
     }
   }, []);
+
+  const ensureSocket = useCallback(() => {
+    if (!socketRef.current) {
+      socketRef.current = io({
+        path: "/socket.io",
+        auth: { restaurantId: "1" },
+        query: { restaurantId: "1" },
+      });
+    }
+    return socketRef.current;
+  }, []);
+
+  const emitCustomerDisplay = useCallback(
+    (payload: CustomerDisplayPayload) => {
+      const socket = ensureSocket();
+      socket?.emit("customer-display:update", payload);
+    },
+    [ensureSocket]
+  );
 
   const fetchMenu = useCallback(async () => {
     setMenuLoading(true);
@@ -396,6 +435,23 @@ export default function CashierPage() {
     });
   }, []);
 
+  useEffect(() => {
+    if (cart.length === 0) {
+      emitCustomerDisplay({ mode: "idle" });
+      return;
+    }
+    emitCustomerDisplay({
+      mode: "summary",
+      total: subtotal,
+      items: cart.map((l) => ({
+        name: l.name,
+        quantity: l.quantity,
+        unit_price: l.unit_price,
+        options_label: l.options_label,
+      })),
+    });
+  }, [cart, subtotal, emitCustomerDisplay]);
+
   const updateQty = useCallback((key: string, delta: number) => {
     setCart((prev) => {
       const next = prev
@@ -419,7 +475,8 @@ export default function CashierPage() {
     setEmail("");
     setEmailMsg(null);
     searchRef.current?.focus();
-  }, []);
+    emitCustomerDisplay({ mode: "idle" });
+  }, [emitCustomerDisplay]);
 
   const buildReceiptHtml = useCallback((order: Order) => {
     const escapeHtml = (s: string) =>
@@ -610,6 +667,18 @@ export default function CashierPage() {
           return;
         }
 
+        emitCustomerDisplay({
+          mode: "processing",
+          total: subtotal,
+          paymentMethod,
+          items: cart.map((l) => ({
+            name: l.name,
+            quantity: l.quantity,
+            unit_price: l.unit_price,
+            options_label: l.options_label,
+          })),
+        });
+
         // If we loaded an unpaid ticket, don't create a new order — just charge that ticket.
         if (activeTicketId) {
           if (paymentMethod === "card") {
@@ -631,6 +700,20 @@ export default function CashierPage() {
           }
           setLastOrder({ id: activeTicketId, total: subtotal });
           setCheckout({ state: "paid", orderId: activeTicketId, method: "cash" });
+          emitCustomerDisplay({
+            mode: "result",
+            total: subtotal,
+            orderId: activeTicketId,
+            paymentMethod: "cash",
+            success: true,
+            message: "Payment received. Thank you!",
+            items: cart.map((l) => ({
+              name: l.name,
+              quantity: l.quantity,
+              unit_price: l.unit_price,
+              options_label: l.options_label,
+            })),
+          });
           return;
         }
 
@@ -643,6 +726,13 @@ export default function CashierPage() {
         if (!resolvedTableId) {
           setChargeError("No table is available. Please create tables first.");
           setCheckout({ state: "idle" });
+          emitCustomerDisplay({
+            mode: "result",
+            total: subtotal,
+            paymentMethod,
+            success: false,
+            message: "Something went wrong. Please wait a moment.",
+          });
           return;
         }
 
@@ -674,6 +764,13 @@ export default function CashierPage() {
         if (!res.ok || !data || typeof data.orderId !== "number") {
           setChargeError(data?.error || "Failed to create order.");
           setCheckout({ state: "idle" });
+          emitCustomerDisplay({
+            mode: "result",
+            total: subtotal,
+            paymentMethod,
+            success: false,
+            message: "We couldn't create this order. Please try again.",
+          });
           return;
         }
 
@@ -695,14 +792,42 @@ export default function CashierPage() {
         if (!payRes || !payRes.ok) {
           setChargeError("Failed to finalize payment. Please try again.");
           setCheckout({ state: "idle" });
+          emitCustomerDisplay({
+            mode: "result",
+            total: subtotal,
+            orderId,
+            paymentMethod: "cash",
+            success: false,
+            message: "We couldn't confirm your payment. Please wait a moment.",
+            items: cart.map((l) => ({
+              name: l.name,
+              quantity: l.quantity,
+              unit_price: l.unit_price,
+              options_label: l.options_label,
+            })),
+          });
           return;
         }
         setCheckout({ state: "paid", orderId, method: "cash" });
+        emitCustomerDisplay({
+          mode: "result",
+          total: subtotal,
+          orderId,
+          paymentMethod: "cash",
+          success: true,
+          message: "Payment received. Thank you!",
+          items: cart.map((l) => ({
+            name: l.name,
+            quantity: l.quantity,
+            unit_price: l.unit_price,
+            options_label: l.options_label,
+          })),
+        });
       } finally {
         setCreating(false);
       }
     },
-    [activeTicketId, cart, clearCart, customerNotes, deliveryNotes, fetchOrders, orderType, subtotal, tableId, tables]
+    [activeTicketId, cart, clearCart, customerNotes, deliveryNotes, emitCustomerDisplay, fetchOrders, orderType, subtotal, tableId, tables]
   );
 
   const finalizeCardPayment = useCallback(async (success: boolean) => {
@@ -711,7 +836,20 @@ export default function CashierPage() {
     setPendingCardContext(null);
     if (!ctx) return;
     if (!success) {
-      setCheckout({ state: "failed", message: "Card payment failed. Ticket remains pending payment.", orderId: ctx.orderId, method: "card" });
+      setCheckout({
+        state: "failed",
+        message: "Card payment failed. Ticket remains pending payment.",
+        orderId: ctx.orderId,
+        method: "card",
+      });
+      emitCustomerDisplay({
+        mode: "result",
+        total: subtotal,
+        orderId: ctx.orderId,
+        paymentMethod: "card",
+        success: false,
+        message: "Card payment was not completed. Please try again or use another method.",
+      });
       return;
     }
     const payRes = await fetch(`/api/orders/${ctx.orderId}`, {
@@ -720,22 +858,36 @@ export default function CashierPage() {
       body: JSON.stringify({ payment_method: "online", payment_status: "paid" }),
     }).catch(() => null);
     if (!payRes || !payRes.ok) {
-      setCheckout({ state: "failed", message: "Failed to finalize card payment. Please try again.", orderId: ctx.orderId, method: "card" });
+      setCheckout({
+        state: "failed",
+        message: "Failed to finalize card payment. Please try again.",
+        orderId: ctx.orderId,
+        method: "card",
+      });
+      emitCustomerDisplay({
+        mode: "result",
+        total: subtotal,
+        orderId: ctx.orderId,
+        paymentMethod: "card",
+        success: false,
+        message: "We couldn't confirm your card payment. Please wait a moment.",
+      });
       return;
     }
     setCheckout({ state: "paid", orderId: ctx.orderId, method: "card" });
-  }, [pendingCardContext]);
+    emitCustomerDisplay({
+      mode: "result",
+      total: subtotal,
+      orderId: ctx.orderId,
+      paymentMethod: "card",
+      success: true,
+      message: "Payment approved. Thank you!",
+    });
+  }, [emitCustomerDisplay, pendingCardContext, subtotal]);
 
   useEffect(() => {
     // Tickets update via websockets only (no polling).
-    if (!socketRef.current) {
-      socketRef.current = io({
-        path: "/socket.io",
-        auth: { restaurantId: "1" },
-        query: { restaurantId: "1" },
-      });
-    }
-    const socket = socketRef.current;
+    const socket = ensureSocket();
 
     const upsert = (order: Order) => {
       setOrders((prev) => {
@@ -755,7 +907,7 @@ export default function CashierPage() {
       socket.off("order:new", onNew);
       socket.off("order:update", onUpdate);
     };
-  }, []);
+  }, [ensureSocket]);
 
   const topRight = (
     <div className="flex items-center gap-2">
@@ -1446,15 +1598,16 @@ export default function CashierPage() {
     </div>
   );
 
-  // Fullscreen overlay hides the admin navbar.
+  const gatedBody = <ShiftGate>{body}</ShiftGate>;
+
   if (isFullscreen) {
     return (
       <div className="fixed inset-0 z-50 bg-stone-100 overflow-auto p-4">
-        {body}
+        {gatedBody}
       </div>
     );
   }
 
-  return body;
+  return gatedBody;
 }
 

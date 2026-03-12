@@ -32,7 +32,7 @@ export type Order = {
 export type OrderItem = {
   id: number;
   order_id: number;
-  menu_item_id: number;
+  menu_item_id: number | null;
   name: string;
   price: number;
   quantity: number;
@@ -66,39 +66,96 @@ export function getDefaultRestaurantId(): number {
   return 1;
 }
 
-/** Food dictionary: names only (no prices). Used when creating products/options. */
+export type DictionaryItemType = "item" | "category";
+
+/** Food dictionary: names (and optional type). Used for product/option names (type=item) and menu categories (type=category). Categories ordered by sortOrder then name. */
 export function getFoodDictionary(
   restaurantId: number,
-  search?: string
-): Promise<{ id: number; name: string }[]> {
-  const where = search?.trim()
-    ? { restaurantId, name: { contains: search.trim(), mode: "insensitive" as const } }
-    : { restaurantId };
+  search?: string,
+  type?: DictionaryItemType
+): Promise<{ id: number; name: string; type: string; sort_order?: number }[]> {
+  const where: { restaurantId: number; name?: { contains: string; mode: "insensitive" }; type?: string } = {
+    restaurantId,
+  };
+  if (search?.trim()) {
+    where.name = { contains: search.trim(), mode: "insensitive" };
+  }
+  if (type) {
+    where.type = type;
+  }
+  const orderBy = type === "category"
+    ? [{ sortOrder: "asc" as const }, { name: "asc" as const }]
+    : [{ name: "asc" as const }];
   return prisma.foodDictionaryItem
     .findMany({
       where,
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      orderBy,
+      select: { id: true, name: true, type: true, sortOrder: true },
     })
-    .then((rows) => rows.map((r) => ({ id: r.id, name: r.name })));
+    .then((rows) =>
+      rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        type: r.type,
+        ...(type === "category" && { sort_order: r.sortOrder }),
+      }))
+    );
 }
 
 export async function addFoodDictionaryItem(
   restaurantId: number,
-  name: string
-): Promise<{ id: number; name: string }> {
+  name: string,
+  itemType: DictionaryItemType = "item"
+): Promise<{ id: number; name: string; type: string }> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Name is required");
   const existing = await prisma.foodDictionaryItem.findFirst({
     where: { restaurantId, name: trimmed },
-    select: { id: true, name: true },
+    select: { id: true, name: true, type: true },
   });
   if (existing) return existing;
   const created = await prisma.foodDictionaryItem.create({
-    data: { restaurantId, name: trimmed },
-    select: { id: true, name: true },
+    data: { restaurantId, name: trimmed, type: itemType },
+    select: { id: true, name: true, type: true },
   });
   return created;
+}
+
+/** Update category order. orderedIds = category (dictionary item) ids in desired order. */
+export async function updateCategoryOrder(
+  restaurantId: number,
+  orderedIds: number[]
+): Promise<void> {
+  await Promise.all(
+    orderedIds.map((id, index) =>
+      prisma.foodDictionaryItem.updateMany({
+        where: { id, restaurantId, type: "category" },
+        data: { sortOrder: index },
+      })
+    )
+  );
+}
+
+/** Reorder menu items within a category. itemIds = menu item ids in desired order (must all belong to category). */
+export async function updateMenuItemsOrderInCategory(
+  restaurantId: number,
+  category: string,
+  itemIds: number[]
+): Promise<void> {
+  const valid = await prisma.menuItem.findMany({
+    where: { restaurantId, category, id: { in: itemIds } },
+    select: { id: true },
+  });
+  const validIds = new Set(valid.map((r) => r.id));
+  const ordered = itemIds.filter((id) => validIds.has(id));
+  await Promise.all(
+    ordered.map((id, index) =>
+      prisma.menuItem.updateMany({
+        where: { id, restaurantId, category },
+        data: { sortOrder: index },
+      })
+    )
+  );
 }
 
 /** Normalize name for unavailable matching: trim, lowercase, collapse spaces. */
@@ -293,14 +350,29 @@ async function getOptionGroupsByMenuItemIds(menuItemIds: number[]): Promise<Map<
   return byMenuItemId;
 }
 
-export async function getMenuItems(restaurantId: number): Promise<MenuItemWithOptions[]> {
-  const unavailableNames = await getUnavailableDictionaryNames(restaurantId);
-  const items = await prisma.menuItem.findMany({
-    where: { restaurantId, available: 1 },
-    orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
+/** Category name -> display order (from dictionary sortOrder). Lower = first. */
+async function getCategoryOrderMap(restaurantId: number): Promise<Map<string, number>> {
+  const cats = await prisma.foodDictionaryItem.findMany({
+    where: { restaurantId, type: "category" },
+    orderBy: { sortOrder: "asc" },
+    select: { name: true, sortOrder: true },
   });
+  const map = new Map<string, number>();
+  cats.forEach((c, i) => map.set(c.name, i));
+  return map;
+}
+
+export async function getMenuItems(restaurantId: number): Promise<MenuItemWithOptions[]> {
+  const [unavailableNames, categoryOrder, items] = await Promise.all([
+    getUnavailableDictionaryNames(restaurantId),
+    getCategoryOrderMap(restaurantId),
+    prisma.menuItem.findMany({
+      where: { restaurantId, available: 1 },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    }),
+  ]);
   const optionGroupsByItemId = await getOptionGroupsByMenuItemIds(items.map((i) => i.id));
-  return items.map((item) => ({
+  const withOptions = items.map((item) => ({
     id: item.id,
     name: item.name,
     description: item.description,
@@ -318,16 +390,27 @@ export async function getMenuItems(restaurantId: number): Promise<MenuItemWithOp
     })),
     unavailable: unavailableNames.has(normalizeNameForUnavailable(item.name)),
   }));
+  const catOrder = (c: string) => categoryOrder.get(c) ?? 999;
+  withOptions.sort((a, b) => {
+    const oa = catOrder(a.category);
+    const ob = catOrder(b.category);
+    if (oa !== ob) return oa - ob;
+    return a.sort_order - b.sort_order || a.name.localeCompare(b.name);
+  });
+  return withOptions;
 }
 
 export async function getMenuItemsAdmin(restaurantId: number): Promise<MenuItemWithOptions[]> {
-  const unavailableNames = await getUnavailableDictionaryNames(restaurantId);
-  const items = await prisma.menuItem.findMany({
-    where: { restaurantId },
-    orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
-  });
+  const [unavailableNames, categoryOrder, items] = await Promise.all([
+    getUnavailableDictionaryNames(restaurantId),
+    getCategoryOrderMap(restaurantId),
+    prisma.menuItem.findMany({
+      where: { restaurantId },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    }),
+  ]);
   const optionGroupsByItemId = await getOptionGroupsByMenuItemIds(items.map((i) => i.id));
-  return items.map((item) => ({
+  const withOptions = items.map((item) => ({
     id: item.id,
     name: item.name,
     description: item.description,
@@ -345,6 +428,14 @@ export async function getMenuItemsAdmin(restaurantId: number): Promise<MenuItemW
     })),
     unavailable: unavailableNames.has(normalizeNameForUnavailable(item.name)),
   }));
+  const catOrder = (c: string) => categoryOrder.get(c) ?? 999;
+  withOptions.sort((a, b) => {
+    const oa = catOrder(a.category);
+    const ob = catOrder(b.category);
+    if (oa !== ob) return oa - ob;
+    return a.sort_order - b.sort_order || a.name.localeCompare(b.name);
+  });
+  return withOptions;
 }
 
 export async function getMenuItemById(
@@ -449,11 +540,6 @@ export async function updateMenuItem(
       data: rest,
     });
   }
-}
-
-/** Returns how many order lines reference this menu item (for blocking delete when > 0). */
-export async function countOrderItemsByMenuItemId(menuItemId: number): Promise<number> {
-  return prisma.orderItem.count({ where: { menuItemId } });
 }
 
 export async function deleteMenuItem(restaurantId: number, id: number): Promise<void> {
@@ -565,10 +651,13 @@ export async function deleteItemOption(id: number): Promise<void> {
 
 export async function getOrders(
   restaurantId: number,
-  limit = 100
+  limit = 100,
+  shiftId?: number | null
 ): Promise<(Order & { items?: OrderItem[] })[]> {
+  const where: { restaurantId: number; shiftId?: number } = { restaurantId };
+  if (shiftId != null) where.shiftId = shiftId;
   const orders = await prisma.order.findMany({
-    where: { restaurantId },
+    where,
     orderBy: { createdAt: "desc" },
     take: limit,
     include: {
@@ -654,12 +743,14 @@ export async function createOrder(
     }[];
     total: number;
     customer_notes?: string;
+    shift_id?: number | null;
   }
 ): Promise<{ id: number; order: Order & { table_name?: string; items?: OrderItem[] } }> {
   const order = await prisma.order.create({
     data: {
       restaurantId,
       tableId: data.table_id,
+      shiftId: data.shift_id ?? null,
       orderType: data.order_type,
       total: data.total,
       customerNotes: data.customer_notes || null,
@@ -816,6 +907,60 @@ export async function pruneCompletedOrderDetails(restaurantId: number, orderId: 
     where: { orderId },
     data: { notes: null, optionsJson: null },
   });
+}
+
+// ── Shift management ──────────────────────────────────────────────
+
+export type Shift = {
+  id: number;
+  started_at: string;
+  ended_at: string | null;
+};
+
+export async function getCurrentShift(restaurantId: number): Promise<Shift | null> {
+  const shift = await prisma.shift.findFirst({
+    where: { restaurantId, endedAt: null },
+    orderBy: { startedAt: "desc" },
+  });
+  if (!shift) return null;
+  return {
+    id: shift.id,
+    started_at: shift.startedAt.toISOString(),
+    ended_at: null,
+  };
+}
+
+export async function startShift(restaurantId: number): Promise<Shift> {
+  // End any currently open shift first
+  await prisma.shift.updateMany({
+    where: { restaurantId, endedAt: null },
+    data: { endedAt: new Date() },
+  });
+  const shift = await prisma.shift.create({
+    data: { restaurantId },
+  });
+  return {
+    id: shift.id,
+    started_at: shift.startedAt.toISOString(),
+    ended_at: null,
+  };
+}
+
+export async function endShift(restaurantId: number): Promise<Shift | null> {
+  const open = await prisma.shift.findFirst({
+    where: { restaurantId, endedAt: null },
+    orderBy: { startedAt: "desc" },
+  });
+  if (!open) return null;
+  const ended = await prisma.shift.update({
+    where: { id: open.id },
+    data: { endedAt: new Date() },
+  });
+  return {
+    id: ended.id,
+    started_at: ended.startedAt.toISOString(),
+    ended_at: ended.endedAt!.toISOString(),
+  };
 }
 
 export { prisma };

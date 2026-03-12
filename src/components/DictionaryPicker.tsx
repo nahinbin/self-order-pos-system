@@ -11,11 +11,13 @@ type Props = {
   onSelect: (name: string, dictionaryItemId?: number) => void;
   title?: string;
   placeholder?: string;
+  /** Only show and add entries of this type. Omit for all (e.g. dictionary page). */
+  filterType?: "item" | "category";
 };
 
 const DEBOUNCE_MS = 200;
 
-export function DictionaryPicker({ open, onClose, onSelect, title = "Food dictionary", placeholder = "Search or add..." }: Props) {
+export function DictionaryPicker({ open, onClose, onSelect, title = "Food dictionary", placeholder = "Search or add...", filterType }: Props) {
   const [search, setSearch] = useState("");
   const [list, setList] = useState<DictionaryItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -26,7 +28,10 @@ export function DictionaryPicker({ open, onClose, onSelect, title = "Food dictio
   const fetchList = useCallback(async (q: string) => {
     setLoading(true);
     try {
-      const url = q.trim() ? `/api/admin/dictionary?q=${encodeURIComponent(q.trim())}` : "/api/admin/dictionary";
+      const params = new URLSearchParams();
+      if (q.trim()) params.set("q", q.trim());
+      if (filterType) params.set("type", filterType);
+      const url = `/api/admin/dictionary${params.toString() ? `?${params.toString()}` : ""}`;
       const res = await fetch(url);
       const data = await res.json().catch(() => []);
       setList(Array.isArray(data) ? data : []);
@@ -35,7 +40,7 @@ export function DictionaryPicker({ open, onClose, onSelect, title = "Food dictio
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filterType]);
 
   useEffect(() => {
     if (!open) return;
@@ -69,7 +74,7 @@ export function DictionaryPicker({ open, onClose, onSelect, title = "Food dictio
       const res = await fetch("/api/admin/dictionary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed }),
+        body: JSON.stringify({ name: trimmed, type: filterType ?? "item" }),
       });
       if (!res.ok) throw new Error("Failed to add");
       const data = await res.json();

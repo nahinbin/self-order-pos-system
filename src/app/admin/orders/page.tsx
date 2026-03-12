@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useRef } from "react";
 import { io, type Socket } from "socket.io-client";
 import Loader from "@/components/Loader";
+import ShiftGate from "@/components/ShiftGate";
 import { formatDuration } from "@/lib/order-status";
 
 type OrderItem = { name: string; price: number; quantity: number; options_json?: string | null };
@@ -480,7 +481,7 @@ export default function AdminOrdersPage() {
   );
 
   return (
-    <>
+    <ShiftGate>
       {/* Normal view (inside admin layout) */}
       <div className="flex flex-col -mx-4 -my-6 sm:mx-0 sm:my-0" onClick={unlockSound}>
         <div className="flex justify-end items-center gap-2 p-2 pb-0">
@@ -536,6 +537,6 @@ export default function AdminOrdersPage() {
 
       {/* Fullscreen: overlay covers entire viewport (hides nav) */}
       {isFullscreen && fullscreenOverlay}
-    </>
+    </ShiftGate>
   );
 }

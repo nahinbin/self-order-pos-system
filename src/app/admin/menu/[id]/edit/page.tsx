@@ -6,6 +6,8 @@ import { useParams } from "next/navigation";
 import { DictionaryPicker } from "@/components/DictionaryPicker";
 import Loader from "@/components/Loader";
 
+type CategoryOption = { id: number; name: string };
+
 type ItemOption = { id: number; name: string; price_modifier: number; is_default: number; sort_order: number };
 type OptionGroup = {
   id: number;
@@ -29,18 +31,18 @@ type MenuItem = {
   option_groups?: OptionGroup[];
 };
 
-const CATEGORIES = ["Mains", "Starters", "Sides", "Salads", "Drinks", "Add-ons"];
-
 export default function EditMenuItemPage() {
   const params = useParams();
   const id = params?.id as string;
   const [item, setItem] = useState<MenuItem | null>(null);
   const [loading, setLoading] = useState(true);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [price, setPrice] = useState("");
-  const [category, setCategory] = useState("Mains");
+  const [category, setCategory] = useState("");
   const [available, setAvailable] = useState(1);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -71,16 +73,33 @@ export default function EditMenuItemPage() {
         setDescription(data.description ?? "");
         setImageUrl(data.image_url ?? null);
         setPrice(String(data.price ?? ""));
-        setCategory(data.category ?? "Mains");
+        setCategory(data.category ?? "");
         setAvailable(data.available ?? 1);
       })
       .catch(() => setItem(null))
       .finally(() => setLoading(false));
   }, [id]);
 
+  const fetchCategories = useCallback(async () => {
+    setCategoriesLoading(true);
+    try {
+      const res = await fetch("/api/admin/dictionary?type=category");
+      const data = await res.json().catch(() => []);
+      setCategories(Array.isArray(data) ? data : []);
+    } catch {
+      setCategories([]);
+    } finally {
+      setCategoriesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchItem();
   }, [fetchItem]);
+
+  useEffect(() => {
+    fetchCategories();
+  }, [fetchCategories]);
 
   const saveItem = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -282,17 +301,23 @@ export default function EditMenuItemPage() {
                 <input type="number" step="0.01" min="0" value={price} onChange={(e) => setPrice(e.target.value)} className="w-24 px-3 py-2 rounded-lg border border-stone-300 text-stone-800" />
               </div>
               <div>
-                <label className="block text-xs text-stone-500 mb-0.5">Category</label>
-                <input
-                  type="text"
-                  list="categories-list"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className="px-3 py-2 rounded-lg border border-stone-300 text-stone-800 min-w-[120px]"
-                />
-                <datalist id="categories-list">
-                  {CATEGORIES.map((c) => <option key={c} value={c} />)}
-                </datalist>
+                <label className="block text-xs text-stone-500 mb-0.5">Category (from dictionary)</label>
+                {categoriesLoading ? (
+                  <span className="text-stone-400 text-sm">Loading…</span>
+                ) : categories.length === 0 ? (
+                  <span className="text-amber-700 text-sm"><Link href="/admin/dictionary" className="underline">Add categories in Dictionary</Link></span>
+                ) : (
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="px-3 py-2 rounded-lg border border-stone-300 text-stone-800 min-w-[120px] bg-white"
+                  >
+                    <option value="">Select category</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.name}>{c.name}</option>
+                    ))}
+                  </select>
+                )}
               </div>
               <label className="flex items-center gap-2 pt-6 cursor-pointer">
                 <input type="checkbox" checked={available === 1} onChange={(e) => setAvailable(e.target.checked ? 1 : 0)} />
@@ -500,6 +525,7 @@ export default function EditMenuItemPage() {
         onSelect={onDictionarySelect}
         title="Food dictionary"
         placeholder="Search or add (e.g. burger, beef patty, buns)..."
+        filterType="item"
       />
     </div>
   );

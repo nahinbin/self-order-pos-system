@@ -19,14 +19,29 @@ type MenuItem = {
   unavailable?: boolean;
 };
 
-const CATEGORIES = ["Mains", "Starters", "Sides", "Salads", "Drinks", "Add-ons"];
+type CategoryOption = { id: number; name: string };
 
 export default function AdminMenuPage() {
   const [items, setItems] = useState<MenuItem[]>([]);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [error, setError] = useState<string | null>(null);
   const LOAD_TIMEOUT_MS = 10000;
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/dictionary?type=category");
+      const data = await res.json().catch(() => []);
+      setCategories(Array.isArray(data) ? data : []);
+    } catch {
+      setCategories([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCategories();
+  }, [fetchCategories]);
 
   const fetchMenu = useCallback(async () => {
     setLoading(true);
@@ -92,7 +107,7 @@ export default function AdminMenuPage() {
     return acc;
   }, {} as Record<string, MenuItem[]>);
 
-  const orderedCats = [...CATEGORIES, ...Object.keys(byCategory).filter((c) => !CATEGORIES.includes(c))];
+  const orderedCats = Object.keys(byCategory).sort((a, b) => a.localeCompare(b));
 
   return (
     <div>
@@ -101,6 +116,7 @@ export default function AdminMenuPage() {
         <div className="flex gap-2 flex-wrap">
           <Link href="/admin/unavailable" className="py-2 px-3 rounded-lg border border-stone-300 text-stone-600 text-sm hover:bg-stone-50">Unavailable</Link>
           <Link href="/admin/dictionary" className="py-2 px-3 rounded-lg border border-stone-300 text-stone-600 text-sm hover:bg-stone-50">Dictionary</Link>
+          <Link href="/admin/menu/organize" className="py-2 px-3 rounded-lg border border-stone-300 text-stone-600 text-sm hover:bg-stone-50">Order</Link>
           <Link href="/admin/menu/new" className="py-2 px-4 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700">Add item</Link>
         </div>
       </div>
@@ -158,10 +174,10 @@ export default function AdminMenuPage() {
                           onChange={(e) => patchItem(item.id, "category", e.target.value)}
                           className="text-sm border border-stone-200 rounded px-1.5 py-0.5 focus:border-amber-500 focus:outline-none"
                         >
-                          {CATEGORIES.map((c) => (
-                            <option key={c} value={c}>{c}</option>
+                          {categories.map((c) => (
+                            <option key={c.id} value={c.name}>{c.name}</option>
                           ))}
-                          {!CATEGORIES.includes(item.category) && (
+                          {item.category && !categories.some((c) => c.name === item.category) && (
                             <option value={item.category}>{item.category}</option>
                           )}
                         </select>

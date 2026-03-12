@@ -20,12 +20,30 @@ model Restaurant {
   orders             Order[]
   foodDictionary     FoodDictionaryItem[]
   unavailableEntries UnavailableEntry[]
+  shifts             Shift[]
+}
+
+model Shift {
+  id           Int       @id @default(autoincrement())
+  restaurantId Int
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orders     Order[]
+
+  @@index([restaurantId])
+  @@index([restaurantId, endedAt])
 }
 
 model FoodDictionaryItem {
   id           Int      @id @default(autoincrement())
   restaurantId Int
   name         String
+  /// "item" = food/product name; "category" = menu category (Mains, Drinks, etc.)
+  type         String   @default("item")
+  /// For type=category: display order on order page (lower = first).
+  sortOrder    Int      @default(0)
   createdAt    DateTime @default(now())
 
   restaurant         Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
@@ -34,6 +52,7 @@ model FoodDictionaryItem {
   @@unique([restaurantId, name])
   @@index([restaurantId])
   @@index([restaurantId, name])
+  @@index([restaurantId, type])
   @@map("food_dictionary")
 }
 
@@ -116,6 +135,7 @@ model Order {
   id             Int      @id @default(autoincrement())
   restaurantId   Int
   tableId        Int
+  shiftId        Int?
   orderType      String   // dine_in | takeaway
   status         String   @default("pending")
   paymentMethod  String?
@@ -132,26 +152,28 @@ model Order {
 
   restaurant Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   table      RestaurantTable  @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  shift      Shift?           @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   items      OrderItem[]
 
   @@index([restaurantId])
   @@index([restaurantId, createdAt(sort: Desc)])
   @@index([tableId])
   @@index([status])
+  @@index([shiftId])
 }
 
 model OrderItem {
   id          Int     @id @default(autoincrement())
   orderId     Int
-  menuItemId  Int
+  menuItemId  Int?
   name        String
   price       Decimal  @db.Decimal(10, 2)
   quantity    Int
   notes       String?
   optionsJson String?
 
-  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+  order    Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([menuItemId])

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { io, type Socket } from "socket.io-client";
@@ -59,6 +59,19 @@ function OrderPageContent() {
     preparing_duration_seconds?: number | null;
   } | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const [isOpen, setIsOpen] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    const check = () =>
+      fetch("/api/shift/status")
+        .then((r) => r.json())
+        .then((d) => { if (mounted) setIsOpen(d.open !== false); })
+        .catch(() => {});
+    check();
+    const id = setInterval(check, 30_000);
+    return () => { mounted = false; clearInterval(id); };
+  }, []);
 
   const MENU_LOAD_TIMEOUT_MS = 10000;
   const fetchMenu = useCallback(async () => {
@@ -377,13 +390,13 @@ function OrderPageContent() {
     if (status === "pending") {
       return {
         title: "Waiting for the kitchen",
-        message: "We’ve received your order. The kitchen is confirming it, this usually takes less than a minute.",
+        message: "We've received your order. The kitchen is confirming it, this usually takes less than a minute.",
       };
     }
     if (status === "preparing") {
       return {
         title: "Your food is being prepared",
-        message: "The kitchen has started preparing your order. We’ll bring it to your table as soon as it’s ready.",
+        message: "The kitchen has started preparing your order. We'll bring it to your table as soon as it's ready.",
       };
     }
     if (status === "served") {
@@ -404,22 +417,76 @@ function OrderPageContent() {
     };
   };
 
+  const categories = useMemo(
+    () => [...new Set(menu.map((m) => m.category).filter(Boolean))],
+    [menu]
+  );
+  const [activeCat, setActiveCat] = useState<string | null>(null);
+  const catRefs = useRef<Record<string, HTMLElement | null>>({});
+
+  const scrollToCat = (cat: string) => {
+    setActiveCat(cat);
+    catRefs.current[cat]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  useEffect(() => {
+    if (step !== "menu" || categories.length === 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setActiveCat(entry.target.getAttribute("data-cat"));
+          }
+        }
+      },
+      { rootMargin: "-100px 0px -60% 0px", threshold: 0 }
+    );
+    Object.values(catRefs.current).forEach((el) => { if (el) observer.observe(el); });
+    return () => observer.disconnect();
+  }, [step, categories]);
+
+  const statusIcon = (() => {
+    const s = liveOrder?.status ?? "pending";
+    if (s === "pending") return { emoji: "🕐", color: "text-amber-500", pulse: true };
+    if (s === "preparing") return { emoji: "🍳", color: "text-orange-500", pulse: true };
+    if (s === "served") return { emoji: "✅", color: "text-emerald-500", pulse: false };
+    if (s === "cancelled") return { emoji: "✕", color: "text-red-500", pulse: false };
+    return { emoji: "⏳", color: "text-stone-500", pulse: true };
+  })();
+
   return (
     <div className="min-h-screen bg-stone-50 pb-28">
       {/* Header */}
-      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur border-b border-stone-200 px-4 py-3">
+      <header className="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-stone-200 px-4 py-3">
         <div className="flex items-center justify-between max-w-2xl mx-auto">
-          <div className="flex flex-col">
-            <span className="text-sm font-semibold text-stone-900">{displayTableName}</span>
-            <span className="text-xs text-stone-500">
-              {orderType === "takeaway" ? "Takeaway" : orderType === "dine_in" ? "Dine in" : ""}
-            </span>
+          <div className="flex items-center gap-3">
+            {(step === "menu" || step === "cart" || step === "payment") && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (step === "payment") setStep("menu");
+                  else if (step === "cart") setStep("menu");
+                  else if (step === "menu") setStep("order_type");
+                }}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-stone-400 hover:bg-stone-100 hover:text-stone-700 transition"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+            )}
+            <div className="flex flex-col">
+              <span className="text-sm font-bold text-stone-900">{displayTableName}</span>
+              <span className="text-[11px] text-stone-500 leading-tight">
+                {orderType === "takeaway" ? "Takeaway" : orderType === "dine_in" ? "Dine in" : ""}
+              </span>
+            </div>
           </div>
           {step === "menu" && cartCount > 0 && (
             <button
               type="button"
               onClick={() => setCartOpen(true)}
-              className="px-3 py-2 rounded-xl bg-stone-900 text-white text-sm font-semibold"
+              className="relative px-3.5 py-2 rounded-xl bg-stone-900 text-white text-sm font-bold"
             >
               Cart · {cartCount}
             </button>
@@ -427,44 +494,71 @@ function OrderPageContent() {
         </div>
       </header>
 
+      {!isOpen && (
+        <div className="bg-red-600 text-white text-center py-2 px-4">
+          <p className="text-sm font-semibold">Restaurant is currently closed</p>
+        </div>
+      )}
+
+      {step === "menu" && categories.length > 1 && (
+        <div className="sticky top-[53px] z-10 bg-white/95 backdrop-blur-md border-b border-stone-100">
+          <div className="max-w-2xl mx-auto overflow-x-auto hide-scrollbar">
+            <div className="flex gap-1 px-4 py-2">
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => scrollToCat(cat)}
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${
+                    activeCat === cat
+                      ? "bg-stone-900 text-white"
+                      : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="max-w-2xl mx-auto px-4 py-4">
         {error && (
-          <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-800 text-sm">
+          <div className="mb-4 p-3 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-sm">
             {error}
           </div>
         )}
 
-        {/* Step: Confirm table */}
         {step === "confirm_table" && (
-          <div className="py-8">
+          <div className="py-12">
             {tableParam ? (
-              <div className="text-center">
-                <p className="text-stone-600 mb-6">
-                  Are you at <strong>{tableName}</strong>?
-                </p>
+              <div className="text-center max-w-xs mx-auto">
+                <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-5">
+                  <span className="text-3xl">🪑</span>
+                </div>
+                <h2 className="text-2xl font-black text-stone-900 mb-1">{tableName}</h2>
+                <p className="text-stone-500 text-sm mb-8">Confirm your table to start ordering.</p>
                 <button
                   type="button"
                   onClick={confirmTable}
-                  className="w-full max-w-xs mx-auto py-3 px-6 rounded-xl bg-amber-600 text-white font-medium hover:bg-amber-700"
+                  className="w-full py-3.5 rounded-2xl bg-amber-500 text-stone-900 font-bold text-base hover:bg-amber-400 transition shadow-md shadow-amber-500/20"
                 >
-                  Yes, start ordering
+                  Start ordering
                 </button>
               </div>
             ) : (
               <div>
-                <p className="text-stone-600 mb-4 text-center">
-                  Choose your table to start ordering.
-                </p>
+                <h2 className="text-xl font-black text-stone-900 text-center mb-1">Select your table</h2>
+                <p className="text-stone-500 text-sm text-center mb-6">Tap your table number to begin.</p>
                 {tablesLoading ? (
                   <div className="py-8 flex justify-center">
                     <div className="h-10 w-10 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" />
                   </div>
                 ) : availableTables.length === 0 ? (
-                  <p className="text-sm text-stone-500 text-center">
-                    No tables are configured yet. Please ask a staff member to help.
-                  </p>
+                  <p className="text-sm text-stone-500 text-center">No tables configured. Please ask staff.</p>
                 ) : (
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
                     {availableTables.map((t) => (
                       <button
                         key={t.id}
@@ -475,9 +569,9 @@ function OrderPageContent() {
                           setStep("order_type");
                           setError(null);
                         }}
-                        className="py-3 rounded-xl border-2 border-stone-200 bg-white text-sm font-medium text-stone-800 hover:border-amber-500 hover:bg-amber-50"
+                        className="aspect-square rounded-2xl border-2 border-stone-200 bg-white font-bold text-stone-800 hover:border-amber-400 hover:bg-amber-50 transition flex items-center justify-center text-lg"
                       >
-                        {t.name}
+                        {t.name.replace("Table ", "")}
                       </button>
                     ))}
                   </div>
@@ -487,123 +581,146 @@ function OrderPageContent() {
           </div>
         )}
 
-        {/* Step: Dine in / Takeaway */}
         {step === "order_type" && (
-          <div className="py-6">
-            <p className="text-stone-600 mb-4">How would you like to order?</p>
-            <div className="grid grid-cols-2 gap-3">
+          <div className="py-10 max-w-sm mx-auto">
+            <h2 className="text-xl font-black text-stone-900 text-center mb-6">How are you ordering?</h2>
+            <div className="grid grid-cols-2 gap-4">
               <button
                 type="button"
                 onClick={() => { setOrderType("dine_in"); setStep("menu"); }}
-                className="py-4 px-4 rounded-xl border-2 border-stone-200 hover:border-amber-500 hover:bg-amber-50 font-medium text-stone-800"
+                className="flex flex-col items-center gap-3 py-8 rounded-2xl border-2 border-stone-200 bg-white hover:border-amber-400 hover:bg-amber-50 transition"
               >
-                Dine in
+                <span className="text-4xl">🍽</span>
+                <span className="font-bold text-stone-900">Dine in</span>
               </button>
               <button
                 type="button"
                 onClick={() => { setOrderType("takeaway"); setStep("menu"); }}
-                className="py-4 px-4 rounded-xl border-2 border-stone-200 hover:border-amber-500 hover:bg-amber-50 font-medium text-stone-800"
+                className="flex flex-col items-center gap-3 py-8 rounded-2xl border-2 border-stone-200 bg-white hover:border-amber-400 hover:bg-amber-50 transition"
               >
-                Take away
+                <span className="text-4xl">🥡</span>
+                <span className="font-bold text-stone-900">Take away</span>
               </button>
             </div>
           </div>
         )}
 
-        {/* Step: Menu */}
         {step === "menu" && (
-          <div className="space-y-6">
+          <div className="space-y-8">
             {menuLoading ? (
-              <div className="py-12 flex justify-center"><div className="h-10 w-10 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" /></div>
+              <div className="py-16 flex justify-center">
+                <div className="h-10 w-10 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" />
+              </div>
             ) : menu.length === 0 ? (
-              <p className="text-stone-500 py-8 text-center">No menu items available.</p>
+              <p className="text-stone-500 py-12 text-center">No menu items available.</p>
             ) : (
-            <>
-            {["Mains", "Starters", "Sides", "Salads", "Drinks", "Add-ons"].map((cat) => {
-              const items = menu.filter((m) => m.category === cat);
-              if (items.length === 0) return null;
-              return (
-                <section key={cat}>
-                  <h2 className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-3">{cat}</h2>
-                  <ul className="space-y-3">
-                    {items.map((item) => {
-                      const isUnavailable = item.unavailable === true;
-                      return (
-                        <li
-                          key={item.id}
-                          className={`flex items-stretch rounded-2xl border overflow-hidden transition ${
-                            isUnavailable
-                              ? "bg-stone-100 border-stone-200 opacity-60"
-                              : "bg-white border-stone-200 hover:border-amber-300 hover:bg-amber-50/40"
-                          }`}
-                        >
-                          {item.image_url ? (
-                            <div className="w-28 min-h-[84px] shrink-0 self-stretch bg-stone-100">
-                              <img src={item.image_url} alt="" className="w-full h-full min-h-[84px] object-cover rounded-l-2xl" />
-                            </div>
-                          ) : null}
-                          <div className="min-w-0 flex-1 py-3.5 pr-3.5 pl-3.5">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="font-semibold text-stone-900 text-base">{item.name}</p>
-                              {isUnavailable && (
-                                <span className="text-xs font-medium text-stone-500 bg-stone-200 px-2 py-0.5 rounded">
-                                  Unavailable
-                                </span>
+              <>
+                {categories.map((cat) => {
+                  const items = menu.filter((m) => m.category === cat);
+                  if (items.length === 0) return null;
+                  return (
+                    <section
+                      key={cat}
+                      ref={(el) => { catRefs.current[cat] = el; }}
+                      data-cat={cat}
+                    >
+                      <h2 className="text-sm font-black text-stone-800 uppercase tracking-wider mb-3 scroll-mt-28">{cat}</h2>
+                      <ul className="space-y-2.5">
+                        {items.map((item) => {
+                          const isUnavailable = item.unavailable === true;
+                          const inCart = cart.find((c) => c.menu_item_id === item.id);
+                          return (
+                            <li
+                              key={item.id}
+                              className={`flex items-stretch rounded-2xl border overflow-hidden transition ${
+                                isUnavailable
+                                  ? "bg-stone-100 border-stone-200 opacity-50"
+                                  : "bg-white border-stone-200 active:scale-[0.99]"
+                              }`}
+                            >
+                              {item.image_url && (
+                                <div className="w-24 sm:w-28 shrink-0 self-stretch bg-stone-100">
+                                  <img src={item.image_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                                </div>
                               )}
-                            </div>
-                            {item.description && (
-                              <p className="text-sm text-stone-500 truncate">{item.description}</p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0 py-3 pr-3.5">
-                            <span className="text-amber-700 font-semibold">${item.price.toFixed(2)}</span>
-                            {isUnavailable ? (
-                              <span className="w-10 h-10 rounded-xl bg-stone-200 text-stone-400 text-xl leading-none flex items-center justify-center cursor-not-allowed">
-                                +
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => addToCart(item)}
-                                className="w-10 h-10 rounded-xl bg-amber-600 text-white text-xl leading-none hover:bg-amber-700 active:scale-[0.98]"
-                              >
-                                +
-                              </button>
-                            )}
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </section>
-              );
-            })}
-            </>
+                              <div className="min-w-0 flex-1 py-3 px-3.5 flex flex-col justify-center">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-bold text-stone-900 text-[15px] leading-tight">{item.name}</p>
+                                  {isUnavailable && (
+                                    <span className="text-[10px] font-bold text-stone-500 bg-stone-200 px-1.5 py-0.5 rounded uppercase">Sold out</span>
+                                  )}
+                                </div>
+                                {item.description && (
+                                  <p className="text-xs text-stone-500 mt-0.5 line-clamp-1">{item.description}</p>
+                                )}
+                                <p className="text-amber-700 font-bold text-sm mt-1">${item.price.toFixed(2)}</p>
+                              </div>
+                              <div className="flex items-center shrink-0 pr-3">
+                                {isUnavailable ? (
+                                  <span className="w-10 h-10 rounded-xl bg-stone-200 text-stone-400 text-lg flex items-center justify-center">+</span>
+                                ) : inCart && !hasOptions(item) ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const idx = cart.findIndex((c) => c.menu_item_id === item.id && !optionsKey(c.options));
+                                        if (idx !== -1) updateCartQty(idx, -1);
+                                      }}
+                                      className="w-8 h-8 rounded-lg border border-stone-300 text-stone-600 text-sm flex items-center justify-center"
+                                    >−</button>
+                                    <span className="w-6 text-center text-sm font-bold">{inCart.quantity}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => addToCart(item)}
+                                      className="w-8 h-8 rounded-lg bg-amber-500 text-white text-sm flex items-center justify-center"
+                                    >+</button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => addToCart(item)}
+                                    className="w-10 h-10 rounded-xl bg-amber-500 text-white text-lg flex items-center justify-center hover:bg-amber-600 active:scale-95 transition"
+                                  >+</button>
+                                )}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </section>
+                  );
+                })}
+              </>
             )}
           </div>
         )}
 
-        {/* Options modal */}
         {optionModalItem && (
-          <div className="fixed inset-0 z-20 flex items-end sm:items-center justify-center bg-black/50 p-4">
-            <div className="flex max-h-[90vh] w-full max-w-md flex-col rounded-t-2xl sm:rounded-2xl bg-white shadow-xl">
-              <div className="shrink-0 p-4 border-b border-stone-200 bg-white">
-                <h3 className="font-semibold text-stone-800">{optionModalItem.name}</h3>
-                <p className="text-sm text-stone-500">Base: ${optionModalItem.price.toFixed(2)} — select options below</p>
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+            <div className="flex max-h-[90vh] w-full max-w-md flex-col rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl">
+              <div className="shrink-0 px-5 pt-5 pb-3 border-b border-stone-100">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="font-bold text-stone-900 text-lg">{optionModalItem.name}</h3>
+                    <p className="text-sm text-stone-500 mt-0.5">${optionModalItem.price.toFixed(2)}</p>
+                  </div>
+                  <button type="button" onClick={() => setOptionModalItem(null)} className="w-8 h-8 rounded-full hover:bg-stone-100 flex items-center justify-center text-stone-400 text-lg">×</button>
+                </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-5">
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 space-y-5">
                 {(optionModalItem.option_groups ?? []).map((g) => {
                   const isSingle = g.max_selections === 1;
                   const byId = optionSelections[String(g.id)] ?? {};
                   return (
                     <div key={g.id}>
-                      <p className="text-sm font-medium text-stone-700 mb-0.5">
-                        {g.name}
-                        {g.required ? <span className="text-amber-600 ml-1">*</span> : null}
-                      </p>
-                      <p className="text-xs text-stone-500 mb-2">
-                        {isSingle ? "Choose one" : "Add as many as you want (use + / −)"}
-                      </p>
+                      <div className="flex items-center gap-2 mb-2">
+                        <p className="text-sm font-bold text-stone-800">{g.name}</p>
+                        {g.required ? (
+                          <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded uppercase">Required</span>
+                        ) : (
+                          <span className="text-[10px] font-bold bg-stone-100 text-stone-500 px-1.5 py-0.5 rounded uppercase">Optional</span>
+                        )}
+                      </div>
                       <ul className="space-y-1.5">
                         {g.options?.map((o) => {
                           const qty = byId[o.id] ?? 0;
@@ -611,17 +728,10 @@ function OrderPageContent() {
                           const isUnavailable = o.unavailable === true;
                           if (isUnavailable) {
                             return (
-                              <li key={o.id} className="opacity-60">
-                                <div className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border-2 border-stone-200 bg-stone-100 cursor-not-allowed">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="font-medium text-stone-500">{o.name}</span>
-                                    <span className="text-xs font-medium text-stone-500 bg-stone-200 px-2 py-0.5 rounded">
-                                      Temporarily unavailable
-                                    </span>
-                                  </div>
-                                  {o.price_modifier > 0 && (
-                                    <span className="text-stone-400 text-sm">+${o.price_modifier.toFixed(2)}</span>
-                                  )}
+                              <li key={o.id} className="opacity-50">
+                                <div className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-stone-200 bg-stone-50">
+                                  <span className="text-sm text-stone-500">{o.name}</span>
+                                  <span className="text-[10px] font-bold text-stone-400 bg-stone-200 px-1.5 py-0.5 rounded">SOLD OUT</span>
                                 </div>
                               </li>
                             );
@@ -632,41 +742,30 @@ function OrderPageContent() {
                                 <button
                                   type="button"
                                   onClick={() => setOptionQuantity(g.id, o.id, g, selected ? 0 : 1)}
-                                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border-2 text-left text-sm transition ${
-                                    selected ? "border-amber-500 bg-amber-50" : "border-stone-200 hover:border-stone-300 hover:bg-stone-50"
+                                  className={`w-full flex items-center justify-between px-3 py-3 rounded-xl border-2 text-left transition ${
+                                    selected ? "border-amber-400 bg-amber-50" : "border-stone-200 hover:border-stone-300"
                                   }`}
                                 >
-                                  <span className="font-medium text-stone-800">{o.name}</span>
-                                  {o.price_modifier > 0 ? (
-                                    <span className="text-amber-700 font-medium">+${o.price_modifier.toFixed(2)}</span>
-                                  ) : (
-                                    <span className="text-stone-400 text-xs">No extra charge</span>
+                                  <div className="flex items-center gap-2.5">
+                                    <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${selected ? "border-amber-500 bg-amber-500" : "border-stone-300"}`}>
+                                      {selected && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                    </span>
+                                    <span className="font-medium text-stone-800 text-sm">{o.name}</span>
+                                  </div>
+                                  {o.price_modifier > 0 && (
+                                    <span className="text-amber-700 font-semibold text-sm">+${o.price_modifier.toFixed(2)}</span>
                                   )}
                                 </button>
                               ) : (
-                                <div className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border-2 ${selected ? "border-amber-500 bg-amber-50" : "border-stone-200"}`}>
+                                <div className={`flex items-center justify-between gap-2 px-3 py-3 rounded-xl border-2 transition ${selected ? "border-amber-400 bg-amber-50" : "border-stone-200"}`}>
                                   <div className="flex-1 min-w-0">
-                                    <span className="font-medium text-stone-800">{o.name}</span>
-                                    {o.price_modifier > 0 && (
-                                      <span className="text-amber-700 text-sm ml-1">+${o.price_modifier.toFixed(2)} each</span>
-                                    )}
+                                    <span className="font-medium text-stone-800 text-sm">{o.name}</span>
+                                    {o.price_modifier > 0 && <span className="text-amber-700 text-xs ml-1.5">+${o.price_modifier.toFixed(2)}</span>}
                                   </div>
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    <button
-                                      type="button"
-                                      onClick={() => changeOptionQuantity(g.id, o.id, -1)}
-                                      className="h-8 w-8 rounded-lg border border-stone-300 bg-white text-stone-700 font-medium"
-                                    >
-                                      −
-                                    </button>
-                                    <span className="w-6 text-center text-sm font-medium">{qty}</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => changeOptionQuantity(g.id, o.id, 1)}
-                                      className="h-8 w-8 rounded-lg border border-stone-300 bg-white text-stone-700 font-medium"
-                                    >
-                                      +
-                                    </button>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <button type="button" onClick={() => changeOptionQuantity(g.id, o.id, -1)} className="h-8 w-8 rounded-lg border border-stone-300 bg-white text-stone-700 font-medium text-sm">−</button>
+                                    <span className="w-6 text-center text-sm font-bold">{qty}</span>
+                                    <button type="button" onClick={() => changeOptionQuantity(g.id, o.id, 1)} className="h-8 w-8 rounded-lg border border-stone-300 bg-white text-stone-700 font-medium text-sm">+</button>
                                   </div>
                                 </div>
                               )}
@@ -677,295 +776,219 @@ function OrderPageContent() {
                     </div>
                   );
                 })}
-                <div className="flex items-center justify-between pt-4 border-t border-stone-100">
-                  <span className="text-sm font-medium text-stone-700">Quantity</span>
+                <div className="flex items-center justify-between pt-3 border-t border-stone-100">
+                  <span className="text-sm font-bold text-stone-800">Quantity</span>
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setOptionModalQty((q) => Math.max(1, q - 1))}
-                      className="h-9 w-9 rounded-lg border border-stone-300 bg-white text-stone-700"
-                    >
-                      −
-                    </button>
-                    <span className="w-8 text-center font-medium">{optionModalQty}</span>
-                    <button
-                      type="button"
-                      onClick={() => setOptionModalQty((q) => Math.min(9, q + 1))}
-                      className="h-9 w-9 rounded-lg border border-stone-300 bg-white text-stone-700"
-                    >
-                      +
-                    </button>
+                    <button type="button" onClick={() => setOptionModalQty((q) => Math.max(1, q - 1))} className="h-9 w-9 rounded-xl border border-stone-300 bg-white text-stone-700">−</button>
+                    <span className="w-8 text-center font-bold">{optionModalQty}</span>
+                    <button type="button" onClick={() => setOptionModalQty((q) => Math.min(20, q + 1))} className="h-9 w-9 rounded-xl border border-stone-300 bg-white text-stone-700">+</button>
                   </div>
                 </div>
               </div>
               {!optionModalValid && (
-                <p className="shrink-0 px-4 pb-1 text-xs text-amber-600">
-                  Please select required options before adding to cart.
-                </p>
+                <p className="shrink-0 px-5 pb-1 text-xs text-amber-600">Select required options to continue.</p>
               )}
-              <div className="shrink-0 p-4 border-t border-stone-200 bg-white">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm text-stone-600">Total</span>
-                  <span className="text-lg font-semibold text-stone-900">${optionModalTotal.toFixed(2)}</span>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setOptionModalItem(null)}
-                    className="flex-1 py-3 rounded-xl border border-stone-300 text-stone-700"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={confirmOptionModal}
-                    disabled={!optionModalValid}
-                    className="flex-1 py-3 rounded-xl bg-amber-600 text-white font-medium hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Add to cart — ${optionModalTotal.toFixed(2)}
-                  </button>
-                </div>
+              <div className="shrink-0 p-5 border-t border-stone-100">
+                <button
+                  type="button"
+                  onClick={confirmOptionModal}
+                  disabled={!optionModalValid}
+                  className="w-full py-3.5 rounded-2xl bg-amber-500 text-stone-900 font-bold hover:bg-amber-400 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <span>Add to cart</span>
+                  <span className="font-black">${optionModalTotal.toFixed(2)}</span>
+                </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Step: Cart */}
         {step === "cart" && (
-          <div className="space-y-4">
+          <div className="py-4 space-y-4">
+            <h2 className="text-lg font-black text-stone-900">Review your order</h2>
             <ul className="space-y-2">
               {cart.map((item, index) => (
-                <li
-                  key={index}
-                  className="flex flex-col gap-1 p-3 rounded-xl bg-white border border-stone-100"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-stone-800">{item.name}</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => updateCartQty(index, -1)}
-                        className="w-8 h-8 rounded-lg border border-stone-300 text-stone-600"
-                      >
-                        −
-                      </button>
-                      <span className="w-6 text-center">{item.quantity}</span>
-                      <button
-                        type="button"
-                        onClick={() => updateCartQty(index, 1)}
-                        className="w-8 h-8 rounded-lg border border-stone-300 text-stone-600"
-                      >
-                        +
-                      </button>
-                      <span className="w-14 text-right font-medium">${(item.price * item.quantity).toFixed(2)}</span>
-                    </div>
+                <li key={index} className="flex items-center gap-3 p-3 rounded-2xl bg-white border border-stone-200">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-stone-900 text-sm">{item.name}</p>
+                    {item.options && item.options.length > 0 && (
+                      <p className="text-[11px] text-stone-500 mt-0.5">
+                        {item.options.map((o) => { const q = o.quantity ?? 1; return q > 1 ? `${o.choiceName} x${q}` : o.choiceName; }).join(" · ")}
+                      </p>
+                    )}
                   </div>
-                  {item.options && item.options.length > 0 && (
-                    <p className="text-xs text-stone-500">
-                      {item.options.map((o) => {
-                        const q = o.quantity ?? 1;
-                        const label = q > 1 ? `${o.choiceName} x${q}` : o.choiceName;
-                        const extra = o.priceModifier > 0 ? ` (+$${(o.priceModifier * q).toFixed(2)})` : "";
-                        return label + extra;
-                      }).join(", ")}
-                    </p>
-                  )}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button type="button" onClick={() => updateCartQty(index, -1)} className="w-7 h-7 rounded-lg border border-stone-300 text-stone-600 text-sm flex items-center justify-center">−</button>
+                    <span className="w-5 text-center text-sm font-bold">{item.quantity}</span>
+                    <button type="button" onClick={() => updateCartQty(index, 1)} className="w-7 h-7 rounded-lg border border-stone-300 text-stone-600 text-sm flex items-center justify-center">+</button>
+                  </div>
+                  <span className="font-bold text-stone-900 text-sm tabular-nums w-16 text-right">${(item.price * item.quantity).toFixed(2)}</span>
                 </li>
               ))}
             </ul>
-            <p className="text-right font-semibold text-stone-800">Total: ${total.toFixed(2)}</p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setStep("menu")}
-                className="flex-1 py-3 rounded-xl border border-stone-300 text-stone-700"
-              >
-                Back to menu
-              </button>
-              <button
-                type="button"
-                onClick={() => setStep("payment")}
-                className="flex-1 py-3 rounded-xl bg-amber-600 text-white font-medium hover:bg-amber-700"
-              >
-                Proceed to pay
-              </button>
+            <div className="flex items-center justify-between px-1 pt-2">
+              <span className="font-black text-stone-900">Total</span>
+              <span className="font-black text-stone-900 text-lg">${total.toFixed(2)}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button type="button" onClick={() => setStep("menu")} className="py-3 rounded-2xl border-2 border-stone-200 text-stone-700 font-semibold hover:bg-stone-50 transition">Add more</button>
+              <button type="button" onClick={() => setStep("payment")} disabled={!isOpen} className="py-3 rounded-2xl bg-amber-500 text-stone-900 font-bold hover:bg-amber-400 transition disabled:opacity-50 disabled:cursor-not-allowed">{isOpen ? "Checkout" : "Closed"}</button>
             </div>
           </div>
         )}
 
-        {/* Step: Payment */}
         {step === "payment" && (
-          <div className="py-6 space-y-4">
-            <p className="text-stone-600">Total: <strong>${total.toFixed(2)}</strong></p>
-            <p className="text-sm text-stone-500">Choose how you’d like to pay.</p>
+          <div className="py-6 space-y-5">
+            {!isOpen && (
+              <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 font-medium">
+                Restaurant is closed — ordering is unavailable.
+              </div>
+            )}
+            <div className="rounded-2xl bg-white border border-stone-200 overflow-hidden">
+              <div className="px-4 py-3 border-b border-stone-100">
+                <p className="text-xs font-bold uppercase tracking-wider text-stone-400">Order summary</p>
+              </div>
+              <ul className="divide-y divide-stone-100">
+                {cart.map((item, i) => (
+                  <li key={i} className="px-4 py-2.5 flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-sm font-medium text-stone-800">{item.quantity}× {item.name}</span>
+                      {item.options && item.options.length > 0 && (
+                        <p className="text-[11px] text-stone-500">{item.options.map((o) => { const q = o.quantity ?? 1; return q > 1 ? `${o.choiceName} x${q}` : o.choiceName; }).join(", ")}</p>
+                      )}
+                    </div>
+                    <span className="text-sm font-bold text-stone-800 tabular-nums">${(item.price * item.quantity).toFixed(2)}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="px-4 py-3 border-t border-stone-200 bg-stone-50 flex items-center justify-between">
+                <span className="font-black text-stone-900">Total</span>
+                <span className="font-black text-stone-900 text-lg">${total.toFixed(2)}</span>
+              </div>
+            </div>
             <div className="space-y-3">
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => submitOrder("online")}
-                className="w-full py-4 rounded-xl bg-amber-600 text-white font-medium hover:bg-amber-700 disabled:opacity-50"
-              >
-                Pay now (card / online)
+              <button type="button" disabled={loading || !isOpen} onClick={() => submitOrder("online")} className="w-full py-4 rounded-2xl bg-amber-500 text-stone-900 font-bold text-base hover:bg-amber-400 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                <span>💳</span> Pay now (card)
               </button>
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => submitOrder("cash")}
-                className="w-full py-4 rounded-xl border-2 border-stone-300 text-stone-700 font-medium hover:bg-stone-50 disabled:opacity-50"
-              >
-                Pay cash to server / waiter
+              <button type="button" disabled={loading || !isOpen} onClick={() => submitOrder("cash")} className="w-full py-4 rounded-2xl border-2 border-stone-200 text-stone-700 font-bold text-base hover:bg-stone-50 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                <span>💵</span> Pay cash to waiter
               </button>
             </div>
+            <button type="button" onClick={() => setStep("menu")} className="w-full text-center text-sm text-stone-500 hover:text-stone-700 py-2">← Back to menu</button>
           </div>
         )}
 
-        {/* Step: Done -> waiting / status view + receipt link */}
         {step === "done" && orderId && (
-          <div className="py-8 text-center">
+          <div className="py-10 text-center max-w-sm mx-auto">
+            <div className={`text-5xl mb-4 ${statusIcon.pulse ? "animate-pulse" : ""}`}>{statusIcon.emoji}</div>
             {(() => {
               const { title, message } = guestStatusTitleAndMessage();
               return (
                 <>
-                  <p className="text-lg font-semibold text-stone-900 mb-2">{title}</p>
-                  <p className="text-stone-600 mb-4">{message}</p>
+                  <h2 className="text-xl font-black text-stone-900 mb-2">{title}</h2>
+                  <p className="text-stone-600 text-sm mb-6 leading-relaxed">{message}</p>
                 </>
               );
             })()}
-            <p className="text-xs text-stone-400 mb-6">
-              This page will update automatically as the kitchen starts preparing and serves your order.
-            </p>
-            <Link
-              href={`/receipt/${orderId}`}
-              className="inline-block py-3 px-6 rounded-xl bg-amber-600 text-white font-medium hover:bg-amber-700"
-            >
-              View & download receipt
-            </Link>
+            <div className="flex items-center justify-center gap-2 mb-8">
+              {(["pending", "preparing", "served"] as const).map((s, i) => {
+                const current = liveOrder?.status ?? "pending";
+                const order = ["pending", "preparing", "served"];
+                const done = order.indexOf(current) >= order.indexOf(s);
+                const active = current === s;
+                return (
+                  <div key={s} className="flex items-center gap-2">
+                    {i > 0 && <div className={`w-8 h-0.5 rounded ${done ? "bg-amber-400" : "bg-stone-200"}`} />}
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${done ? "bg-amber-500 text-white" : "bg-stone-200 text-stone-400"} ${active ? "ring-2 ring-amber-300 ring-offset-2" : ""}`}>
+                      {i + 1}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-center gap-2 text-[11px] font-semibold text-stone-500 mb-8 -mt-2">
+              <span className="w-8 text-center">Sent</span>
+              <span className="w-8" />
+              <span className="w-10 text-center">Cooking</span>
+              <span className="w-8" />
+              <span className="w-8 text-center">Done</span>
+            </div>
+            <p className="text-xs text-stone-400 mb-6">This page updates automatically.</p>
+            <div className="space-y-3">
+              <Link href={`/receipt/${orderId}`} className="block py-3 px-6 rounded-2xl bg-stone-900 text-white font-bold hover:bg-stone-950 transition">View receipt</Link>
+              <button
+                type="button"
+                onClick={() => { setCart([]); setOrderId(null); setLiveOrder(null); setStep("menu"); setError(null); }}
+                className="block w-full py-3 px-6 rounded-2xl border-2 border-stone-200 text-stone-700 font-semibold hover:bg-stone-50 transition"
+              >Order more</button>
+            </div>
           </div>
         )}
       </main>
 
-      {/* Bottom cart bar (mobile-first) */}
       {step === "menu" && cartCount > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-30 pb-safe">
           <div className="max-w-2xl mx-auto px-4 pb-4">
             <button
               type="button"
               onClick={() => setCartOpen(true)}
-              className="w-full rounded-2xl bg-stone-900 text-white px-4 py-4 shadow-lg flex items-center justify-between"
+              className="w-full rounded-2xl bg-amber-500 text-stone-900 px-5 py-4 shadow-lg shadow-amber-500/20 flex items-center justify-between"
             >
-              <div className="flex items-center gap-2">
-                <span className="text-base font-bold">Cart</span>
-                <span className="text-sm font-semibold bg-white/15 rounded-full px-2 py-0.5">
-                  {cartCount}
-                </span>
+              <div className="flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-full bg-stone-900 text-white text-xs font-black flex items-center justify-center">{cartCount}</span>
+                <span className="font-bold">View cart</span>
               </div>
-              <div className="text-base font-black">${total.toFixed(2)}</div>
+              <span className="font-black text-lg">${total.toFixed(2)}</span>
             </button>
           </div>
         </div>
       )}
 
-      {/* Cart drawer */}
       {cartOpen && (
         <div className="fixed inset-0 z-40">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setCartOpen(false)} />
-          <div className="absolute inset-x-0 bottom-0 bg-white rounded-t-3xl shadow-2xl max-h-[85vh] overflow-hidden">
-            <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setCartOpen(false)} />
+          <div className="absolute inset-x-0 bottom-0 bg-white rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="px-5 py-4 border-b border-stone-100 flex items-center justify-between shrink-0">
               <div>
-                <p className="text-base font-black text-stone-900">Your cart</p>
-                <p className="text-sm text-stone-500">{cartCount} items</p>
+                <p className="font-black text-stone-900">Your cart</p>
+                <p className="text-xs text-stone-500">{cartCount} {cartCount === 1 ? "item" : "items"}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setCartOpen(false)}
-                className="px-3 py-2 rounded-xl border border-stone-200 text-sm font-semibold text-stone-700"
-              >
-                Close
-              </button>
+              <button type="button" onClick={() => setCartOpen(false)} className="w-8 h-8 rounded-full hover:bg-stone-100 flex items-center justify-center text-stone-400 text-lg">×</button>
             </div>
-
-            <div className="p-5 overflow-auto max-h-[55vh]">
+            <div className="flex-1 overflow-auto px-5 py-4">
               <ul className="space-y-3">
                 {cart.map((item, index) => (
                   <li key={index} className="rounded-2xl border border-stone-200 bg-white p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-semibold text-stone-900 text-base">{item.name}</p>
+                        <p className="font-bold text-stone-900">{item.name}</p>
                         {item.options && item.options.length > 0 && (
-                          <p className="text-xs text-stone-500 mt-1">
-                            {item.options
-                              .map((o) => {
-                                const q = o.quantity ?? 1;
-                                const label = q > 1 ? `${o.choiceName} x${q}` : o.choiceName;
-                                return label;
-                              })
-                              .join(" · ")}
-                          </p>
+                          <p className="text-[11px] text-stone-500 mt-0.5">{item.options.map((o) => { const q = o.quantity ?? 1; return q > 1 ? `${o.choiceName} x${q}` : o.choiceName; }).join(" · ")}</p>
                         )}
-                        <p className="text-xs text-stone-500 mt-1">${(item.price).toFixed(2)} each</p>
+                        <p className="text-xs text-stone-500 mt-1">${item.price.toFixed(2)} each</p>
                       </div>
-                      <div className="text-base font-black text-stone-900">
-                        ${(item.price * item.quantity).toFixed(2)}
-                      </div>
+                      <span className="font-black text-stone-900">${(item.price * item.quantity).toFixed(2)}</span>
                     </div>
-
                     <div className="mt-3 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => updateCartQty(index, -1)}
-                          className="h-10 w-10 rounded-xl border border-stone-300 text-stone-700 text-xl"
-                        >
-                          −
-                        </button>
-                        <span className="w-10 text-center font-black text-base">{item.quantity}</span>
-                        <button
-                          type="button"
-                          onClick={() => updateCartQty(index, 1)}
-                          className="h-10 w-10 rounded-xl border border-stone-300 text-stone-700 text-xl"
-                        >
-                          +
-                        </button>
+                      <div className="flex items-center gap-1.5">
+                        <button type="button" onClick={() => updateCartQty(index, -1)} className="h-9 w-9 rounded-xl border border-stone-300 text-stone-700 text-lg flex items-center justify-center">−</button>
+                        <span className="w-8 text-center font-black">{item.quantity}</span>
+                        <button type="button" onClick={() => updateCartQty(index, 1)} className="h-9 w-9 rounded-xl border border-stone-300 text-stone-700 text-lg flex items-center justify-center">+</button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => updateCartQty(index, -item.quantity)}
-                        className="text-sm font-semibold text-stone-500 hover:text-red-700"
-                      >
-                        Remove
-                      </button>
+                      <button type="button" onClick={() => updateCartQty(index, -item.quantity)} className="text-xs font-bold text-red-500 hover:text-red-700">Remove</button>
                     </div>
                   </li>
                 ))}
               </ul>
             </div>
-
-            <div className="p-5 border-t border-stone-200">
+            <div className="px-5 py-4 border-t border-stone-100 shrink-0">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-base font-black text-stone-900">Total</span>
-                <span className="text-base font-black text-stone-900">${total.toFixed(2)}</span>
+                <span className="font-black text-stone-900">Total</span>
+                <span className="font-black text-stone-900 text-lg">${total.toFixed(2)}</span>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCartOpen(false);
-                    setStep("menu");
-                  }}
-                  className="py-3 rounded-2xl border border-stone-300 text-stone-700 font-semibold"
-                >
-                  Add more
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCartOpen(false);
-                    setStep("payment");
-                  }}
-                  className="py-3 rounded-2xl bg-amber-600 text-white font-black hover:bg-amber-700"
-                >
-                  Checkout
-                </button>
+                <button type="button" onClick={() => { setCartOpen(false); setStep("menu"); }} className="py-3.5 rounded-2xl border-2 border-stone-200 text-stone-700 font-semibold hover:bg-stone-50 transition">Add more</button>
+                <button type="button" onClick={() => { setCartOpen(false); setStep("payment"); }} disabled={!isOpen} className="py-3.5 rounded-2xl bg-amber-500 text-stone-900 font-black hover:bg-amber-400 transition disabled:opacity-50 disabled:cursor-not-allowed">{isOpen ? "Checkout" : "Closed"}</button>
               </div>
             </div>
           </div>

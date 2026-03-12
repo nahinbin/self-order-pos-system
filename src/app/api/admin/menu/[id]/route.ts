@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getMenuItemById, updateMenuItem, deleteMenuItem, countOrderItemsByMenuItemId } from "@/lib/db";
+import { getMenuItemById, updateMenuItem, deleteMenuItem } from "@/lib/db";
 import { getRestaurantIdFromRequest } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -50,16 +50,6 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     const { id } = await params;
     const numId = Number(id);
     if (!numId) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-    const orderItemCount = await countOrderItemsByMenuItemId(numId);
-    if (orderItemCount > 0) {
-      return NextResponse.json(
-        {
-          error:
-            "This item appears in past orders and cannot be deleted. Mark it as unavailable instead.",
-        },
-        { status: 409 }
-      );
-    }
     await deleteMenuItem(restaurantId, numId);
     return NextResponse.json({ ok: true });
   } catch (e) {

@@ -19,7 +19,9 @@ export async function GET(request: Request) {
     const restaurantId = getRestaurantIdFromRequest(request);
     const { searchParams } = new URL(request.url);
     const q = searchParams.get("q") ?? "";
-    const items = await getFoodDictionary(restaurantId, q || undefined);
+    const type = searchParams.get("type");
+    const itemType = type === "category" || type === "item" ? type : undefined;
+    const items = await getFoodDictionary(restaurantId, q || undefined, itemType);
     return NextResponse.json(items);
   } catch (e) {
     return handleDbError(e, "Failed to load dictionary");
@@ -34,7 +36,9 @@ export async function POST(request: Request) {
     if (typeof name !== "string" || !name.trim()) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
-    const item = await addFoodDictionaryItem(restaurantId, name);
+    const type = body?.type;
+    const itemType = type === "category" || type === "item" ? type : "item";
+    const item = await addFoodDictionaryItem(restaurantId, name, itemType);
     return NextResponse.json(item);
   } catch (e) {
     return handleDbError(e, "Failed to add to dictionary");

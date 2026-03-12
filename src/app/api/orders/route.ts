@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getOrders, createOrder, getOrCreateCounterTable } from "@/lib/db";
+import { getOrders, createOrder, getOrCreateCounterTable, getCurrentShift } from "@/lib/db";
 import { getRestaurantIdFromRequest } from "@/lib/tenant";
 import { emitNewOrder } from "@/lib/socket-server";
 import { isDbUnreachableError, dbUnreachableMessage } from "@/lib/db-error";
@@ -18,7 +18,8 @@ function handleDbError(e: unknown, fallback = "Failed to load orders") {
 export async function GET(request: Request) {
   try {
     const restaurantId = getRestaurantIdFromRequest(request);
-    const orders = await getOrders(restaurantId);
+    const shift = await getCurrentShift(restaurantId);
+    const orders = await getOrders(restaurantId, 100, shift?.id ?? undefined);
     return NextResponse.json(orders);
   } catch (e) {
     return handleDbError(e);
@@ -28,6 +29,15 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const restaurantId = getRestaurantIdFromRequest(request);
+
+    const shift = await getCurrentShift(restaurantId);
+    if (!shift) {
+      return NextResponse.json(
+        { error: "Restaurant is currently closed. Orders cannot be placed right now." },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const { table_id, order_type, items, total, customer_notes } = body;
     if (!order_type || !Array.isArray(items) || items.length === 0 || total == null) {
@@ -43,6 +53,7 @@ export async function POST(request: Request) {
     const { id: orderId, order } = await createOrder(restaurantId, {
       table_id: resolvedTableId,
       order_type,
+      shift_id: shift.id,
       items: items.map(
         (i: {
           menu_item_id: number;
