@@ -32,6 +32,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       description: body.description,
       image_url: body.image_url,
       price: body.price,
+      cost: body.cost,
       category: body.category,
       available: body.available,
       sort_order: body.sort_order,

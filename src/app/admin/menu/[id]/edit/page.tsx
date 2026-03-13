@@ -25,6 +25,7 @@ type MenuItem = {
   description: string | null;
   image_url?: string | null;
   price: number;
+  cost?: number | null;
   category: string;
   available: number;
   sort_order: number;
@@ -42,6 +43,7 @@ export default function EditMenuItemPage() {
   const [description, setDescription] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [price, setPrice] = useState("");
+  const [cost, setCost] = useState("");
   const [category, setCategory] = useState("");
   const [available, setAvailable] = useState(1);
   const [saving, setSaving] = useState(false);
@@ -73,6 +75,7 @@ export default function EditMenuItemPage() {
         setDescription(data.description ?? "");
         setImageUrl(data.image_url ?? null);
         setPrice(String(data.price ?? ""));
+        setCost(data.cost != null ? String(data.cost) : "");
         setCategory(data.category ?? "");
         setAvailable(data.available ?? 1);
       })
@@ -105,12 +108,17 @@ export default function EditMenuItemPage() {
     e.preventDefault();
     setError(null);
     const p = parseFloat(price);
+    const c = cost.trim() ? parseFloat(cost) : 0;
     if (!name.trim()) {
       setError("Name is required");
       return;
     }
     if (isNaN(p) || p < 0) {
       setError("Enter a valid price");
+      return;
+    }
+    if (cost.trim() && (isNaN(c) || c < 0)) {
+      setError("Enter a valid cost/expenditure");
       return;
     }
     setSaving(true);
@@ -123,6 +131,7 @@ export default function EditMenuItemPage() {
           description: description.trim() || null,
           image_url: imageUrl,
           price: p,
+          cost: cost.trim() ? c : null,
           category: category.trim(),
           available: available ? 1 : 0,
         }),
@@ -298,7 +307,25 @@ export default function EditMenuItemPage() {
             <div className="flex gap-3 flex-wrap">
               <div>
                 <label className="block text-xs text-stone-500 mb-0.5">Price</label>
-                <input type="number" step="0.01" min="0" value={price} onChange={(e) => setPrice(e.target.value)} className="w-24 px-3 py-2 rounded-lg border border-stone-300 text-stone-800" />
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                  className="w-24 px-3 py-2 rounded-lg border border-stone-300 text-stone-800"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-stone-500 mb-0.5">Cost / expenditure</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={cost}
+                  onChange={(e) => setCost(e.target.value)}
+                  className="w-24 px-3 py-2 rounded-lg border border-stone-300 text-stone-800"
+                />
               </div>
               <div>
                 <label className="block text-xs text-stone-500 mb-0.5">Category (from dictionary)</label>

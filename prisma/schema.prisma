@@ -90,6 +90,7 @@ model MenuItem {
   description String?
   imageUrl    String?
   price       Decimal  @db.Decimal(10, 2)
+  cost        Decimal? @db.Decimal(10, 2)
   category     String
   available    Int      @default(1)
   sortOrder    Int      @default(0)
@@ -168,6 +169,7 @@ model OrderItem {
   menuItemId  Int?
   name        String
   price       Decimal  @db.Decimal(10, 2)
+  cost        Decimal? @db.Decimal(10, 2)
   quantity    Int
   notes       String?
   optionsJson String?

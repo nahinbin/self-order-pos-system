@@ -10,6 +10,7 @@ export type MenuItem = {
   description: string | null;
   image_url?: string | null;
   price: number;
+  cost?: number | null;
   category: string;
   available: number;
   sort_order: number;
@@ -35,6 +36,7 @@ export type OrderItem = {
   menu_item_id: number | null;
   name: string;
   price: number;
+  cost?: number | null;
   quantity: number;
   notes: string | null;
   options_json?: string | null;
@@ -416,6 +418,7 @@ export async function getMenuItemsAdmin(restaurantId: number): Promise<MenuItemW
     description: item.description,
     image_url: item.imageUrl ?? null,
     price: toNum(item.price),
+    cost: item.cost != null ? toNum(item.cost as any) : null,
     category: item.category,
     available: item.available,
     sort_order: item.sortOrder,
@@ -452,6 +455,7 @@ export async function getMenuItemById(
     description: item.description,
     image_url: item.imageUrl ?? null,
     price: toNum(item.price),
+    cost: item.cost != null ? toNum(item.cost as any) : null,
     category: item.category,
     available: item.available,
     sort_order: item.sortOrder,
@@ -466,6 +470,7 @@ export async function createMenuItem(
     description?: string | null;
     image_url?: string | null;
     price: number;
+    cost?: number | null;
     category: string;
     available?: number;
     sort_order?: number;
@@ -478,6 +483,7 @@ export async function createMenuItem(
       description: data.description ?? null,
       imageUrl: data.image_url ?? null,
       price: data.price,
+      cost: data.cost ?? null,
       category: data.category,
       available: data.available ?? 1,
       sortOrder: data.sort_order ?? 0,
@@ -489,6 +495,7 @@ export async function createMenuItem(
     description: item.description,
     image_url: item.imageUrl ?? null,
     price: toNum(item.price),
+    cost: item.cost != null ? toNum(item.cost as any) : null,
     category: item.category,
     available: item.available,
     sort_order: item.sortOrder,
@@ -503,6 +510,7 @@ export async function updateMenuItem(
     description: string | null;
     image_url: string | null;
     price: number;
+    cost: number | null;
     category: string;
     available: number;
     sort_order: number;
@@ -531,6 +539,7 @@ export async function updateMenuItem(
   if (data.name !== undefined) rest.name = data.name;
   if (data.description !== undefined) rest.description = data.description;
   if (data.price !== undefined) rest.price = data.price;
+  if (data.cost !== undefined) rest.cost = data.cost;
   if (data.category !== undefined) rest.category = data.category;
   if (data.available !== undefined) rest.available = data.available;
   if (data.sort_order !== undefined) rest.sortOrder = data.sort_order;
@@ -685,6 +694,7 @@ export async function getOrders(
       menu_item_id: it.menuItemId,
       name: it.name,
       price: toNum(it.price),
+      cost: it.cost != null ? toNum(it.cost as any) : null,
       quantity: it.quantity,
       notes: it.notes,
       options_json: it.optionsJson,
@@ -737,6 +747,7 @@ export async function createOrder(
       menu_item_id: number;
       name: string;
       price: number;
+      cost?: number | null;
       quantity: number;
       notes?: string;
       options_json?: string | null;
@@ -759,6 +770,7 @@ export async function createOrder(
           menuItemId: it.menu_item_id,
           name: it.name,
           price: it.price,
+          cost: it.cost ?? null,
           quantity: it.quantity,
           notes: it.notes || null,
           optionsJson: it.options_json ?? null,
@@ -790,6 +802,7 @@ export async function createOrder(
       menu_item_id: it.menuItemId,
       name: it.name,
       price: toNum(it.price),
+      cost: it.cost != null ? toNum(it.cost as any) : null,
       quantity: it.quantity,
       notes: it.notes,
       options_json: it.optionsJson,

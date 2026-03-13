@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   try {
     const restaurantId = getRestaurantIdFromRequest(request);
     const body = await request.json();
-    const { name, description, image_url, price, category, available, sort_order } = body;
+    const { name, description, image_url, price, cost, category, available, sort_order } = body;
     if (!name || price == null || !category) {
       return NextResponse.json({ error: "Missing name, price, or category" }, { status: 400 });
     }
@@ -37,6 +37,7 @@ export async function POST(request: Request) {
       description: description != null ? String(description) : null,
       image_url: image_url != null ? String(image_url) : null,
       price: Number(price),
+      cost: cost != null ? Number(cost) : null,
       category: String(category).trim(),
       available: available != null ? (Number(available) ? 1 : 0) : 1,
       sort_order: sort_order != null ? Number(sort_order) : 0,
