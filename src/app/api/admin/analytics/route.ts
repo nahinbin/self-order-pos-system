@@ -41,6 +41,12 @@ function daysAgo(n: number): Date {
 
 const PAID_NOT_CANCELLED = { paymentStatus: "paid", status: { not: "cancelled" } };
 
+// Simple in-memory cache to avoid recomputing heavy analytics on every request.
+// Keyed by restaurant + range, short TTL so data stays reasonably fresh.
+type AnalyticsCacheEntry = { data: unknown; expiresAt: number };
+const analyticsCache = new Map<string, AnalyticsCacheEntry>();
+const CACHE_TTL_MS = 30_000; // 30 seconds
+
 async function sumRevenue(restaurantId: number, from: Date, to?: Date): Promise<number> {
   const where: Record<string, unknown> = {
     restaurantId,
@@ -64,6 +70,14 @@ async function countOrders(restaurantId: number, from: Date, to?: Date, extra?: 
 export async function GET(request: Request) {
   try {
     const restaurantId = getRestaurantIdFromRequest(request);
+    const url = new URL(request.url);
+    const range = (url.searchParams.get("range") || "month") as "today" | "week" | "month" | "year";
+    const cacheKey = `${restaurantId}:${range}`;
+    const nowTs = Date.now();
+    const cached = analyticsCache.get(cacheKey);
+    if (cached && cached.expiresAt > nowTs) {
+      return NextResponse.json(cached.data);
+    }
     const now = new Date();
     const today = startOfDay();
     const yesterday = daysAgo(1);
@@ -179,8 +193,6 @@ export async function GET(request: Request) {
     reordered.forEach((b) => { b.revenue = Math.round(b.revenue * 100) / 100; });
 
     // ── 10. Top / worst dishes + profit ──
-    const url = new URL(request.url);
-    const range = (url.searchParams.get("range") || "month") as "today" | "week" | "month" | "year";
     const rangeFrom = range === "today" ? today : range === "week" ? week : range === "year" ? year : month;
 
     const items = await prisma.orderItem.findMany({
@@ -342,7 +354,7 @@ export async function GET(request: Request) {
       }).then((r) => toNum(r._sum.total)),
     ]);
 
-    return NextResponse.json({
+    const payload = {
       revenue: {
         today: Math.round(todayRev * 100) / 100,
         yesterday: Math.round(yesterdayRev * 100) / 100,
@@ -379,7 +391,11 @@ export async function GET(request: Request) {
       profitSummary: { totalProfit, marginPct },
       range,
       generatedAt: now.toISOString(),
-    });
+    };
+
+    analyticsCache.set(cacheKey, { data: payload, expiresAt: nowTs + CACHE_TTL_MS });
+
+    return NextResponse.json(payload);
   } catch (e) {
     console.error(e);
     if (isDbUnreachableError(e)) {

@@ -9,12 +9,15 @@ const QR_PREVIEW = 220;
 const QR_DOWNLOAD = 512;
 
 type Table = { id: number; name: string };
+type OrderItemLite = { name: string; price: number; quantity: number };
 type Order = {
   id: number;
   table_id: number;
   table_name?: string;
   status: string;
   payment_status: string;
+  total?: number;
+  items?: OrderItemLite[];
 };
 
 // ── Color logic ─────────────────────────────────────────────────────
@@ -75,6 +78,7 @@ export default function AdminTablesPage() {
   // QR modal
   const [showQR, setShowQR] = useState(false);
   const [qrTableId, setQrTableId] = useState<number | null>(null);
+  const [qrTab, setQrTab] = useState<"orders" | "qr">("orders");
   const [qrColor, setQrColor] = useState("#000000");
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -264,6 +268,7 @@ export default function AdminTablesPage() {
             type="button"
             onClick={() => {
               setQrTableId(sortedTables[0]?.id ?? null);
+              setQrTab("qr");
               setShowQR(true);
             }}
             className="px-4 py-2 rounded-xl bg-stone-900 text-white text-sm font-semibold hover:bg-stone-950 transition"
@@ -311,11 +316,17 @@ export default function AdminTablesPage() {
               <button
                 key={table.id}
                 type="button"
-                onClick={() => { setQrTableId(table.id); setShowQR(true); }}
-                className={`aspect-square rounded-2xl ring-2 ${cfg.ring} ${cfg.bg} flex flex-col items-center justify-center gap-1 transition hover:shadow-md hover:scale-[1.03] active:scale-100`}
+                onClick={() => {
+                  setQrTableId(table.id);
+                  setQrTab("orders");
+                  setShowQR(true);
+                }}
+                className={`aspect-square rounded-3xl ring-2 ${cfg.ring} ${cfg.bg} flex flex-col items-center justify-center gap-1.5 transition hover:shadow-lg hover:-translate-y-0.5 hover:scale-[1.04] active:scale-100`}
               >
-                <span className="text-lg font-black text-stone-800">{table.name.replace("Table ", "")}</span>
-                <span className={`text-[10px] font-semibold uppercase tracking-wide ${cfg.text}`}>
+                <span className="text-2xl font-black text-stone-900 leading-none">
+                  {table.name.replace("Table ", "")}
+                </span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${cfg.text} bg-white/60`}>
                   {cfg.label}
                 </span>
               </button>
@@ -324,13 +335,20 @@ export default function AdminTablesPage() {
         </div>
       )}
 
-      {/* ── QR Modal ─────────────────────────────────────────────── */}
+      {/* ── Table details + QR Modal ─────────────────────────────── */}
       {showQR && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/60 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl mx-4 overflow-hidden">
             {/* Modal header */}
             <div className="flex items-center justify-between px-6 pt-5 pb-3">
-              <h2 className="text-lg font-bold text-stone-900">QR Code</h2>
+              <div>
+                <h2 className="text-lg font-bold text-stone-900">
+                  {sortedTables.find((t) => t.id === qrTableId)?.name ?? "Table"}
+                </h2>
+                <p className="text-[11px] text-stone-500">
+                  View table orders or manage QR code
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowQR(false)}
@@ -340,91 +358,200 @@ export default function AdminTablesPage() {
               </button>
             </div>
 
-            <div className="px-6 pb-6 space-y-5">
-              {/* Table selector */}
-              <div>
-                <label className="block text-xs font-semibold text-stone-500 mb-1.5">Table</label>
-                <select
-                  value={qrTableId ?? ""}
-                  onChange={(e) => setQrTableId(Number(e.target.value) || null)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-stone-200 text-stone-800 text-sm bg-stone-50"
+            {/* Tabs */}
+            <div className="px-6 border-b border-stone-100">
+              <div className="inline-flex rounded-full bg-stone-100 p-0.5 text-xs font-semibold text-stone-600">
+                <button
+                  type="button"
+                  onClick={() => setQrTab("orders")}
+                  className={`px-3 py-1.5 rounded-full ${
+                    qrTab === "orders" ? "bg-stone-900 text-white" : "hover:text-stone-900"
+                  }`}
                 >
-                  {sortedTables.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
+                  Orders
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQrTab("qr")}
+                  className={`px-3 py-1.5 rounded-full ${
+                    qrTab === "qr" ? "bg-stone-900 text-white" : "hover:text-stone-900"
+                  }`}
+                >
+                  Manage QR
+                </button>
               </div>
+            </div>
 
-              {/* Order URL */}
-              <div>
-                <label className="block text-xs font-semibold text-stone-500 mb-1.5">Order URL</label>
-                <input
-                  type="text"
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  onBlur={() => { try { localStorage.setItem(SAVED_URL_KEY, baseUrl); } catch {} }}
-                  placeholder="https://..."
-                  className="w-full px-3 py-2.5 rounded-xl border border-stone-200 text-stone-800 text-sm bg-stone-50"
-                />
-              </div>
-
-              {/* QR color */}
-              <div>
-                <label className="block text-xs font-semibold text-stone-500 mb-1.5">QR Color</label>
-                <div className="flex items-center gap-2">
-                  {PRESET_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setQrColor(c)}
-                      className={`w-8 h-8 rounded-lg border-2 shrink-0 transition ${qrColor === c ? "border-amber-400 scale-110" : "border-stone-200"}`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
-                  <label className="relative w-9 h-9 rounded-lg border border-stone-200 overflow-hidden cursor-pointer shrink-0 hover:border-stone-400 transition" title="Pick any color">
-                    <input
-                      type="color"
-                      value={qrColor}
-                      onChange={(e) => setQrColor(e.target.value)}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    />
-                    <span className="w-full h-full flex items-center justify-center text-stone-400 text-lg">🎨</span>
-                  </label>
+            <div className="px-6 pb-6 pt-4">
+              <div className="grid gap-6 md:grid-cols-2">
+                {/* Left: Orders list */}
+                <div className={qrTab === "orders" ? "" : "opacity-40 pointer-events-none"}>
+                  <p className="text-xs font-semibold text-stone-500 mb-2">Orders (current shift)</p>
+                  <div className="max-h-72 overflow-y-auto pr-1">
+                    {qrTableId == null ? (
+                      <p className="text-sm text-stone-400">Select a table.</p>
+                    ) : (
+                      (() => {
+                        const tableOrders = orders.filter((o) => o.table_id === qrTableId);
+                        if (tableOrders.length === 0) {
+                          return <p className="text-sm text-stone-400">No orders for this table yet.</p>;
+                        }
+                        return (
+                          <ul className="space-y-3">
+                            {tableOrders.map((o) => (
+                              <li
+                                key={o.id}
+                                className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-xs space-y-1.5"
+                              >
+                                <div className="flex justify-between items-center">
+                                  <span className="font-semibold text-stone-800">Order #{o.id}</span>
+                                  <span className="text-[10px] uppercase tracking-wide text-stone-500">
+                                    {o.status} · {o.payment_status}
+                                  </span>
+                                </div>
+                                {o.items && o.items.length > 0 && (
+                                  <ul className="space-y-0.5">
+                                    {o.items.map((it, idx) => (
+                                      <li
+                                        key={`${it.name}-${idx}`}
+                                        className="flex justify-between text-[11px] text-stone-700"
+                                      >
+                                        <span className="truncate">
+                                          {it.quantity}× {it.name}
+                                        </span>
+                                        <span className="tabular-nums">
+                                          ${(it.price * it.quantity).toFixed(2)}
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                                {o.total != null && (
+                                  <div className="flex justify-between pt-1 border-t border-stone-200 mt-1">
+                                    <span className="text-[11px] text-stone-500">Total</span>
+                                    <span className="text-[11px] font-bold text-stone-900 tabular-nums">
+                                      ${o.total.toFixed(2)}
+                                    </span>
+                                  </div>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        );
+                      })()
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              {/* QR preview */}
-              <div className="flex justify-center">
-                {qrDataUrl ? (
-                  <div className="rounded-2xl border border-stone-100 bg-white p-3">
-                    <img src={qrDataUrl} alt="QR" width={QR_PREVIEW} height={QR_PREVIEW} />
-                  </div>
-                ) : (
-                  <div className="w-[220px] h-[220px] rounded-2xl bg-stone-50 flex items-center justify-center">
-                    <span className="text-sm text-stone-400">Select a table</span>
-                  </div>
-                )}
-              </div>
-              <canvas ref={qrCanvasRef} className="hidden" />
+                {/* Right: QR controls */}
+                <div className={qrTab === "qr" ? "" : "opacity-40 pointer-events-none"}>
+                  <div className="space-y-4">
+                    {/* Table selector */}
+                    <div>
+                      <label className="block text-xs font-semibold text-stone-500 mb-1.5">
+                        Table
+                      </label>
+                      <select
+                        value={qrTableId ?? ""}
+                        onChange={(e) => setQrTableId(Number(e.target.value) || null)}
+                        className="w-full px-3 py-2.5 rounded-xl border border-stone-200 text-stone-800 text-sm bg-stone-50"
+                      >
+                        {sortedTables.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-              {/* Action buttons */}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={downloadQR}
-                  disabled={!qrDataUrl}
-                  className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-700 text-sm font-semibold hover:bg-stone-50 transition disabled:opacity-40"
-                >
-                  Download PNG
-                </button>
-                <button
-                  type="button"
-                  onClick={printQR}
-                  disabled={!qrDataUrl}
-                  className="flex-1 py-2.5 rounded-xl bg-stone-900 text-white text-sm font-semibold hover:bg-stone-950 transition disabled:opacity-40"
-                >
-                  Print QR
-                </button>
+                    {/* Order URL */}
+                    <div>
+                      <label className="block text-xs font-semibold text-stone-500 mb-1.5">
+                        Order URL
+                      </label>
+                      <input
+                        type="text"
+                        value={baseUrl}
+                        onChange={(e) => setBaseUrl(e.target.value)}
+                        onBlur={() => {
+                          try {
+                            localStorage.setItem(SAVED_URL_KEY, baseUrl);
+                          } catch {}
+                        }}
+                        placeholder="https://..."
+                        className="w-full px-3 py-2.5 rounded-xl border border-stone-200 text-stone-800 text-sm bg-stone-50"
+                      />
+                    </div>
+
+                    {/* QR color */}
+                    <div>
+                      <label className="block text-xs font-semibold text-stone-500 mb-1.5">
+                        QR Color
+                      </label>
+                      <div className="flex items-center gap-2">
+                        {PRESET_COLORS.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setQrColor(c)}
+                            className={`w-8 h-8 rounded-lg border-2 shrink-0 transition ${
+                              qrColor === c ? "border-amber-400 scale-110" : "border-stone-200"
+                            }`}
+                            style={{ backgroundColor: c }}
+                          />
+                        ))}
+                        <label
+                          className="relative w-9 h-9 rounded-lg border border-stone-200 overflow-hidden cursor-pointer shrink-0 hover:border-stone-400 transition"
+                          title="Pick any color"
+                        >
+                          <input
+                            type="color"
+                            value={qrColor}
+                            onChange={(e) => setQrColor(e.target.value)}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          />
+                          <span className="w-full h-full flex items-center justify-center text-stone-400 text-lg">
+                            🎨
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* QR preview */}
+                    <div className="flex justify-center">
+                      {qrDataUrl ? (
+                        <div className="rounded-2xl border border-stone-100 bg-white p-3">
+                          <img src={qrDataUrl} alt="QR" width={QR_PREVIEW} height={QR_PREVIEW} />
+                        </div>
+                      ) : (
+                        <div className="w-[220px] h-[220px] rounded-2xl bg-stone-50 flex items-center justify-center">
+                          <span className="text-sm text-stone-400">Select a table</span>
+                        </div>
+                      )}
+                    </div>
+                    <canvas ref={qrCanvasRef} className="hidden" />
+
+                    {/* Action buttons */}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={downloadQR}
+                        disabled={!qrDataUrl}
+                        className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-700 text-sm font-semibold hover:bg-stone-50 transition disabled:opacity-40"
+                      >
+                        Download PNG
+                      </button>
+                      <button
+                        type="button"
+                        onClick={printQR}
+                        disabled={!qrDataUrl}
+                        className="flex-1 py-2.5 rounded-xl bg-stone-900 text-white text-sm font-semibold hover:bg-stone-950 transition disabled:opacity-40"
+                      >
+                        Print QR
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

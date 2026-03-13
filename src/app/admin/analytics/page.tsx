@@ -214,6 +214,23 @@ export default function AdminAnalyticsPage() {
   const history = data?.orderHistory ?? [];
   const topTotal = useMemo(() => top.reduce((s, d) => s + d.revenue, 0), [top]);
   const profit = data?.profitSummary;
+  const [topMode, setTopMode] = useState<"revenue" | "profit" | "sales">("revenue");
+
+  const topSorted = useMemo(() => {
+    const items = [...top];
+    if (topMode === "sales") {
+      return items.sort((a, b) => b.qty - a.qty || b.revenue - a.revenue);
+    }
+    if (topMode === "profit") {
+      const profitOf = (d: Dish): number => {
+        const c = d.cost ?? 0;
+        return d.profit ?? d.revenue - c;
+      };
+      return items.sort((a, b) => profitOf(b) - profitOf(a));
+    }
+    // revenue
+    return items.sort((a, b) => b.revenue - a.revenue);
+  }, [top, topMode]);
 
   const rangeLabel = range === "today" ? "Today" : range === "week" ? "This week" : range === "month" ? "This month" : "This year";
 
@@ -455,18 +472,60 @@ export default function AdminAnalyticsPage() {
         <div className="flex items-center justify-between px-5 py-3 border-b border-stone-100">
           <div>
             <h2 className="text-sm font-black text-stone-900">Top Items</h2>
-            <p className="text-[10px] text-stone-400">{rangeLabel} · by revenue</p>
+            <p className="text-[10px] text-stone-400">
+              {rangeLabel} ·{" "}
+              {topMode === "revenue" ? "by revenue" : topMode === "profit" ? "by profit" : "by sales"}
+            </p>
           </div>
-          {top.length > 5 && <SeeMoreBtn onClick={() => setModal("topDishes")} />}
+          <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-full bg-stone-100 p-0.5">
+              <button
+                type="button"
+                onClick={() => setTopMode("revenue")}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${
+                  topMode === "revenue"
+                    ? "bg-stone-900 text-white"
+                    : "text-stone-600 hover:text-stone-900"
+                }`}
+              >
+                Revenue
+              </button>
+              <button
+                type="button"
+                onClick={() => setTopMode("profit")}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${
+                  topMode === "profit"
+                    ? "bg-stone-900 text-white"
+                    : "text-stone-600 hover:text-stone-900"
+                }`}
+              >
+                Profit
+              </button>
+              <button
+                type="button"
+                onClick={() => setTopMode("sales")}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${
+                  topMode === "sales"
+                    ? "bg-stone-900 text-white"
+                    : "text-stone-600 hover:text-stone-900"
+                }`}
+              >
+                Sales
+              </button>
+            </div>
+            {top.length > 5 && <SeeMoreBtn onClick={() => setModal("topDishes")} />}
+          </div>
         </div>
         {top.length === 0 ? <p className="p-5 text-stone-400 text-sm">No data.</p> : (
           <div className="divide-y divide-stone-50">
-            {top.slice(0, 5).map((d, i) => (
+            {topSorted.slice(0, 5).map((d, i) => (
               <div key={d.name} className="flex items-center gap-3 px-5 py-2.5">
                 <span className="text-xs font-bold text-stone-400 w-5">{i + 1}</span>
                 <span className="flex-1 font-semibold text-stone-900 text-sm truncate">{d.name}</span>
                 <span className="text-xs text-stone-500 tabular-nums">{d.qty} sold</span>
-                <span className="text-sm font-bold text-stone-900 tabular-nums w-20 text-right">{$(d.revenue)}</span>
+                <span className="text-sm font-bold text-stone-900 tabular-nums w-20 text-right">
+                  {topMode === "profit" ? $(Math.max(0, (d.profit ?? d.revenue - (d.cost ?? 0)))) : $(d.revenue)}
+                </span>
               </div>
             ))}
           </div>
@@ -701,24 +760,44 @@ export default function AdminAnalyticsPage() {
       <Modal open={modal === "topDishes"} onClose={() => setModal(null)} title={`Top Items — ${rangeLabel}`} wide>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead><tr className="border-b border-stone-100">
-              <th className="text-left px-3 py-2 text-[10px] font-bold uppercase text-stone-400">#</th>
-              <th className="text-left px-3 py-2 text-[10px] font-bold uppercase text-stone-400">Item</th>
-              <th className="text-right px-3 py-2 text-[10px] font-bold uppercase text-stone-400">Qty</th>
-              <th className="text-right px-3 py-2 text-[10px] font-bold uppercase text-stone-400">Revenue</th>
-              <th className="text-right px-3 py-2 text-[10px] font-bold uppercase text-stone-400">Share</th>
-              <th className="px-3 py-2 w-28" />
-            </tr></thead>
-            <tbody>{top.map((d, i) => (
-              <tr key={d.name} className="border-b border-stone-50 hover:bg-stone-50/50">
-                <td className="px-3 py-2 text-stone-400 font-bold">{i + 1}</td>
-                <td className="px-3 py-2 font-semibold text-stone-900">{d.name}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-stone-700">{d.qty}</td>
-                <td className="px-3 py-2 text-right tabular-nums font-bold text-stone-900">{$(d.revenue)}</td>
-                <td className="px-3 py-2 text-right text-stone-500">{topTotal > 0 ? `${Math.round((d.revenue / topTotal) * 100)}%` : "—"}</td>
-                <td className="px-3 py-2"><div className="h-2 bg-stone-100 rounded-full overflow-hidden"><div className="h-full bg-amber-500 rounded-full" style={{ width: `${(d.revenue / Math.max(1, topTotal)) * 100}%` }} /></div></td>
+            <thead>
+              <tr className="border-b border-stone-100">
+                <th className="text-left px-3 py-2 text-[10px] font-bold uppercase text-stone-400">#</th>
+                <th className="text-left px-3 py-2 text-[10px] font-bold uppercase text-stone-400">Item</th>
+                <th className="text-right px-3 py-2 text-[10px] font-bold uppercase text-stone-400">Qty</th>
+                <th className="text-right px-3 py-2 text-[10px] font-bold uppercase text-stone-400">Revenue</th>
+                <th className="text-right px-3 py-2 text-[10px] font-bold uppercase text-stone-400">Profit</th>
+                <th className="text-right px-3 py-2 text-[10px] font-bold uppercase text-stone-400">Share</th>
+                <th className="px-3 py-2 w-28" />
               </tr>
-            ))}</tbody>
+            </thead>
+            <tbody>
+              {topSorted.map((d, i) => {
+                const profitVal = (d.profit ?? d.revenue - (d.cost ?? 0));
+                return (
+                  <tr key={d.name} className="border-b border-stone-50 hover:bg-stone-50/50">
+                    <td className="px-3 py-2 text-stone-400 font-bold">{i + 1}</td>
+                    <td className="px-3 py-2 font-semibold text-stone-900">{d.name}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-stone-700">{d.qty}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-bold text-stone-900">{$(d.revenue)}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums font-bold ${profitVal < 0 ? "text-red-600" : "text-emerald-700"}`}>
+                      {$(profitVal)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-stone-500">
+                      {topTotal > 0 ? `${Math.round((d.revenue / topTotal) * 100)}%` : "—"}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-amber-500 rounded-full"
+                          style={{ width: `${(d.revenue / Math.max(1, topTotal)) * 100}%` }}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
           </table>
         </div>
       </Modal>
