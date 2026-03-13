@@ -16,10 +16,14 @@ if (rawUrl && typeof rawUrl === "string") {
 
   // Avoid P2024 timeouts / slow connection acquisition.
   if (!hasParam("connection_limit")) {
-    next += `${next.includes("?") ? "&" : "?"}connection_limit=20`;
+    next += `${next.includes("?") ? "&" : "?"}connection_limit=10`;
   }
   if (!hasParam("pool_timeout")) {
-    next += `${next.includes("?") ? "&" : "?"}pool_timeout=60`;
+    // If DB is struggling, fail fast rather than stalling requests for minutes.
+    next += `${next.includes("?") ? "&" : "?"}pool_timeout=10`;
+  }
+  if (!hasParam("connect_timeout")) {
+    next += `${next.includes("?") ? "&" : "?"}connect_timeout=10`;
   }
 
   process.env.DATABASE_URL = next;

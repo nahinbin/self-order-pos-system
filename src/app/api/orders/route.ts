@@ -7,6 +7,12 @@ import { isDbUnreachableError, dbUnreachableMessage } from "@/lib/db-error";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+// Small in-memory cache to avoid hammering DB on rapid refresh/navigation.
+// Many admin pages request /api/orders; if DB is slow, this prevents "5 minute" cascades.
+type OrdersCacheEntry = { data: unknown; expiresAt: number };
+const ordersCache = new Map<string, OrdersCacheEntry>();
+const ORDERS_CACHE_TTL_MS = 2_000;
+
 function handleDbError(e: unknown, fallback = "Failed to load orders") {
   console.error(e);
   if (isDbUnreachableError(e)) {
@@ -18,8 +24,15 @@ function handleDbError(e: unknown, fallback = "Failed to load orders") {
 export async function GET(request: Request) {
   try {
     const restaurantId = getRestaurantIdFromRequest(request);
+    const cacheKey = String(restaurantId);
+    const nowTs = Date.now();
+    const cached = ordersCache.get(cacheKey);
+    if (cached && cached.expiresAt > nowTs) {
+      return NextResponse.json(cached.data);
+    }
     const shift = await getCurrentShift(restaurantId);
     const orders = await getOrders(restaurantId, 100, shift?.id ?? undefined);
+    ordersCache.set(cacheKey, { data: orders, expiresAt: nowTs + ORDERS_CACHE_TTL_MS });
     return NextResponse.json(orders);
   } catch (e) {
     return handleDbError(e);
