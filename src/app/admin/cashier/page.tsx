@@ -81,7 +81,8 @@ function optionsLabelFromJson(json: string | null): string | null {
     return arr
       .map((o) => {
         const q = o.quantity ?? 1;
-        return q > 1 ? `${o.choiceName} x${q}` : o.choiceName;
+        const choice = q > 1 ? `${o.choiceName} x${q}` : o.choiceName;
+        return `${o.groupName}: ${choice}`;
       })
       .join(" · ");
   } catch {

@@ -8,7 +8,9 @@ import { formatDuration } from "@/lib/order-status";
 
 type OrderItem = { name: string; price: number; quantity: number; options_json?: string | null };
 
-function parseOrderOptions(json: unknown): { choiceName: string; priceModifier?: number; quantity?: number }[] {
+type ParsedOption = { groupName: string; choiceName: string; priceModifier?: number; quantity?: number };
+
+function parseOrderOptions(json: unknown): ParsedOption[] {
   if (json == null || typeof json !== "string") return [];
   const s = String(json).trim();
   if (!s || s[0] !== "[") return [];
@@ -16,18 +18,22 @@ function parseOrderOptions(json: unknown): { choiceName: string; priceModifier?:
     const parsed = JSON.parse(s);
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
-      (o): o is { choiceName: string; priceModifier?: number; quantity?: number } =>
-        o && typeof o === "object" && typeof (o as { choiceName?: unknown }).choiceName === "string"
+      (o): o is ParsedOption =>
+        o &&
+        typeof o === "object" &&
+        typeof (o as { choiceName?: unknown }).choiceName === "string" &&
+        typeof (o as { groupName?: unknown }).groupName === "string"
     );
   } catch {
     return [];
   }
 }
 
-/** Kitchen display: option name and quantity only (no price). */
-function formatOptionForKitchen(o: { choiceName: string; quantity?: number }): string {
+/** Kitchen display: "Patty: Beef x2" (name + group). */
+function formatOptionForKitchen(o: ParsedOption): string {
   const q = o.quantity ?? 1;
-  return q > 1 ? `${o.choiceName} x${q}` : o.choiceName;
+  const base = q > 1 ? `${o.choiceName} x${q}` : o.choiceName;
+  return `${o.groupName}: ${base}`;
 }
 
 /** Order code like McDonald's/KFC: YTA2086, WDN0009, DLY0001 */
@@ -99,11 +105,13 @@ function OrderCard({
   onStartPreparing,
   onCancel,
   onMarkServed,
+  onOpenDetails,
 }: {
   order: Order;
   onStartPreparing: (id: number) => void;
   onCancel: (id: number) => void;
   onMarkServed: (id: number) => void;
+  onOpenDetails: (order: Order) => void;
 }) {
   const code = orderCode(order);
   const tableLabel = order.table_name ?? `Table ${order.table_id}`;
@@ -128,63 +136,111 @@ function OrderCard({
         : null) ?? null;
 
   return (
-    <div className="bg-white rounded-xl border-2 border-stone-200 p-4 shadow-sm flex flex-col min-h-[140px]">
-      <div className="flex items-baseline justify-between gap-2 mb-2">
-        <span className="text-2xl font-black text-stone-900 tracking-tight">{code}</span>
-        <span className="text-sm font-medium text-stone-500 whitespace-nowrap">{timeAgo(order.created_at)}</span>
+    <button
+      type="button"
+      onClick={() => onOpenDetails(order)}
+      className="text-left bg-gradient-to-b from-white to-stone-50 rounded-3xl border border-stone-200/80 p-5 sm:p-6 shadow-md flex flex-col min-h-[190px] hover:border-amber-300 hover:shadow-lg transition"
+    >
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[20px] sm:text-[22px] font-black text-stone-900 tracking-tight leading-none">
+            {code}
+          </span>
+          <span className="text-[12px] sm:text-[13px] font-medium text-stone-600">
+            {location}
+          </span>
+        </div>
+        <span className="text-[11px] sm:text-xs font-medium text-stone-400 whitespace-nowrap">
+          {timeAgo(order.created_at)}
+        </span>
       </div>
-      <p className="text-base font-semibold text-stone-700 mb-3">{location}</p>
-      <ul className="space-y-2 flex-1 text-sm">
+      <ul className="space-y-2.5 flex-1 text-[13px] sm:text-sm">
         {order.items?.map((item, i) => {
           const opts = parseOrderOptions(item.options_json);
           return (
             <li key={i}>
-              <p className="font-semibold text-stone-800">
-                {item.name} × {item.quantity}
-              </p>
-              {opts.length > 0 && (
-                <p className="text-stone-600 mt-0.5 pl-2 text-xs leading-snug">
-                  {opts.map(formatOptionForKitchen).join(" · ")}
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="font-semibold text-stone-800">
+                  {item.name}
                 </p>
+                <p className="text-xs font-semibold text-stone-600">
+                  × {item.quantity}
+                </p>
+              </div>
+              {opts.length > 0 && (
+                <div className="mt-0.5 pl-2 space-y-0.5">
+                  {Object.entries(
+                    opts.reduce<Record<string, ParsedOption[]>>((acc, o) => {
+                      const key = o.groupName || "Options";
+                      (acc[key] ||= []).push(o);
+                      return acc;
+                    }, {})
+                  ).map(([groupName, groupOpts]) => (
+                    <div key={groupName} className="text-[11px] sm:text-[12px] text-stone-700">
+                      <span className="font-semibold">{groupName}:</span>{" "}
+                      <span>
+                        {groupOpts
+                          .map((o) => {
+                            const q = o.quantity ?? 1;
+                            return q > 1 ? `${o.choiceName} x${q}` : o.choiceName;
+                          })
+                          .join(", ")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               )}
             </li>
           );
         })}
       </ul>
-      <div className="mt-3 pt-3 border-t border-stone-100 flex items-center justify-between gap-3 text-sm">
-        <div className="flex flex-col">
+      <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between gap-4 text-[11px] sm:text-xs md:text-sm">
+        <div className="flex flex-col gap-0.5">
           {isPending && (
-            <span className="font-medium text-amber-700">Kitchen confirming order…</span>
+            <span className="inline-flex items-center gap-1 font-semibold text-amber-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              Waiting to start
+            </span>
           )}
           {isPreparing && (
-            <span className="font-medium text-amber-700">
-              Preparing{displayElapsed != null && <> · {formatDuration(displayElapsed)}</>}
+            <span className="inline-flex items-center gap-1 font-semibold text-amber-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              Preparing
+              {displayElapsed != null && <> · {formatDuration(displayElapsed)}</>}
             </span>
           )}
           {isServed && (
-            <span className="font-medium text-emerald-700">
+            <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
               Served
               {displayElapsed != null && <> · {formatDuration(displayElapsed)}</>}
             </span>
           )}
           {isCancelled && (
-            <span className="font-medium text-red-600">Cancelled</span>
+            <span className="inline-flex items-center gap-1 font-semibold text-red-600">
+              Cancelled
+            </span>
           )}
         </div>
-        <div className="flex flex-wrap gap-2 justify-end">
+        <div className="flex flex-row flex-wrap gap-2 justify-end">
           {isPending && (
             <>
               <button
                 type="button"
-                onClick={() => onCancel(order.id)}
-                className="px-3 py-1.5 rounded-lg border border-red-300 text-xs font-medium text-red-700 hover:bg-red-50"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCancel(order.id);
+                }}
+                className="px-4 py-2 rounded-xl border border-red-300 text-xs sm:text-sm font-semibold text-red-700 bg-white hover:bg-red-50 active:scale-[0.98] transition"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={() => onStartPreparing(order.id)}
-                className="px-3 py-1.5 rounded-lg bg-amber-600 text-xs font-medium text-white hover:bg-amber-700"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStartPreparing(order.id);
+                }}
+                className="px-4 py-2 rounded-xl bg-amber-600 text-xs sm:text-sm font-semibold text-white hover:bg-amber-700 active:scale-[0.98] transition"
               >
                 Start preparing
               </button>
@@ -193,15 +249,18 @@ function OrderCard({
           {isPreparing && (
             <button
               type="button"
-              onClick={() => onMarkServed(order.id)}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 text-xs font-medium text-white hover:bg-emerald-700"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMarkServed(order.id);
+              }}
+              className="px-4 py-2 rounded-xl bg-emerald-600 text-xs sm:text-sm font-semibold text-white hover:bg-emerald-700 active:scale-[0.98] transition"
             >
               Served
             </button>
           )}
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -210,14 +269,16 @@ function OrdersGrid({
   onStartPreparing,
   onCancel,
   onMarkServed,
+  onOpenDetails,
 }: {
   orders: Order[];
   onStartPreparing: (id: number) => void;
   onCancel: (id: number) => void;
   onMarkServed: (id: number) => void;
+  onOpenDetails: (order: Order) => void;
 }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 auto-rows-fr">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5 auto-rows-fr">
       {orders.map((order) => (
         <OrderCard
           key={order.id}
@@ -225,6 +286,7 @@ function OrdersGrid({
           onStartPreparing={onStartPreparing}
           onCancel={onCancel}
           onMarkServed={onMarkServed}
+          onOpenDetails={onOpenDetails}
         />
       ))}
     </div>
@@ -243,6 +305,9 @@ export default function AdminOrdersPage() {
   const soundUnlockedRef = useRef(false);
 
   const ORDER_SOUND_URL = "/positive-notification-digital-beep-double-gamemaster-audio-1-00-02.mp3";
+
+  const [detailOrder, setDetailOrder] = useState<Order | null>(null);
+  const [showAllItems, setShowAllItems] = useState(false);
 
   const playNewOrderSound = useCallback(() => {
     if (!soundUnlockedRef.current) return;
@@ -283,6 +348,12 @@ export default function AdminOrdersPage() {
   }, []);
 
   const LOAD_TIMEOUT_MS = 8000;
+
+  const openDetails = useCallback((order: Order) => {
+    setDetailOrder(order);
+    setShowAllItems(false);
+  }, []);
+
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     const timeoutId = setTimeout(() => setLoading(false), LOAD_TIMEOUT_MS);
@@ -474,6 +545,7 @@ export default function AdminOrdersPage() {
             onStartPreparing={handleStartPreparing}
             onCancel={handleCancel}
             onMarkServed={handleMarkServed}
+            onOpenDetails={openDetails}
           />
         )}
       </main>
@@ -530,6 +602,7 @@ export default function AdminOrdersPage() {
               onStartPreparing={handleStartPreparing}
               onCancel={handleCancel}
               onMarkServed={handleMarkServed}
+              onOpenDetails={openDetails}
             />
           )}
         </main>
@@ -537,6 +610,101 @@ export default function AdminOrdersPage() {
 
       {/* Fullscreen: overlay covers entire viewport (hides nav) */}
       {isFullscreen && fullscreenOverlay}
+
+      {/* Detail modal (click any card) */}
+      {detailOrder && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl border border-stone-200 max-h-[92vh] flex flex-col">
+            <div className="flex items-center justify-between px-7 py-5 border-b border-stone-100 bg-stone-50/90">
+              <div className="flex items-center gap-4">
+                <div className="px-5 py-3 rounded-2xl bg-stone-900 text-white">
+                  <p className="text-[10px] uppercase tracking-[0.25em] text-stone-400">
+                    Table
+                  </p>
+                  <p className="text-4xl font-extrabold leading-tight">
+                    {(detailOrder.table_name ?? `Table ${detailOrder.table_id}`).replace("Table ", "")}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-stone-500 uppercase tracking-[0.18em]">
+                    Order
+                  </p>
+                  <p className="text-3xl font-black text-stone-900 leading-tight tracking-tight">
+                    {orderCode(detailOrder)}
+                  </p>
+                  <p className="text-[11px] text-stone-500 mt-1">
+                    {new Date(detailOrder.created_at).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailOrder(null)}
+                className="w-10 h-10 rounded-full border border-stone-300 text-stone-500 flex items-center justify-center hover:bg-stone-50 text-xl"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto px-7 py-6 space-y-4 text-base bg-stone-50/60">
+              {(detailOrder.items ?? [])
+                .slice(0, showAllItems ? undefined : 6)
+                .map((item, idx) => {
+                  const opts = parseOrderOptions(item.options_json);
+                  return (
+                    <div
+                      key={idx}
+                      className="border border-stone-200 rounded-2xl px-5 py-4 bg-white shadow-sm"
+                    >
+                      <div className="flex items-baseline justify-between gap-4 mb-3">
+                        <p className="font-semibold text-stone-900 text-2xl">
+                          {item.name}
+                        </p>
+                        <p className="text-2xl font-extrabold text-stone-900">
+                          × {item.quantity}
+                        </p>
+                      </div>
+                      {opts.length > 0 && (
+                        <div className="space-y-1 text-[15px] text-stone-800">
+                          {Object.entries(
+                            opts.reduce<Record<string, ParsedOption[]>>((acc, o) => {
+                              const key = o.groupName || "Options";
+                              (acc[key] ||= []).push(o);
+                              return acc;
+                            }, {})
+                          ).map(([groupName, groupOpts]) => (
+                            <div key={groupName}>
+                              <span className="font-semibold">{groupName}:</span>{" "}
+                              <span>
+                                {groupOpts
+                                  .map((o) => {
+                                    const perItemQty = o.quantity ?? 1;
+                                    const totalQty = perItemQty * item.quantity;
+                                    return totalQty > 1
+                                      ? `${o.choiceName} × ${totalQty}`
+                                      : o.choiceName;
+                                  })
+                                  .join(", ")}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              {(detailOrder.items?.length ?? 0) > 6 && !showAllItems && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllItems(true)}
+                  className="mt-1 text-sm font-semibold text-amber-700 hover:text-amber-800"
+                >
+                  See more…
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </ShiftGate>
   );
 }

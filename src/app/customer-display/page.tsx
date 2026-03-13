@@ -158,7 +158,9 @@ export default function CustomerDisplayPage() {
                           {it.name}
                         </p>
                         {it.options_label && (
-                          <p className="text-stone-600 text-sm mt-0.5 truncate">{it.options_label}</p>
+                          <p className="text-stone-600 text-sm mt-0.5 line-clamp-2">
+                            {it.options_label}
+                          </p>
                         )}
                       </div>
                       <p className="text-stone-400 font-medium shrink-0 tabular-nums">

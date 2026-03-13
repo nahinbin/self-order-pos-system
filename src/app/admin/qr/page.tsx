@@ -9,7 +9,7 @@ const QR_PREVIEW = 220;
 const QR_DOWNLOAD = 512;
 
 type Table = { id: number; name: string };
-type OrderItemLite = { name: string; price: number; quantity: number };
+type OrderItemLite = { name: string; price: number; quantity: number; options_json?: string | null };
 type Order = {
   id: number;
   table_id: number;
@@ -89,6 +89,25 @@ export default function AdminTablesPage() {
   const [adding, setAdding] = useState(false);
 
   const SAVED_URL_KEY = "restaurant-order-base-url";
+
+  function parseOrderOptions(json: unknown): { groupName: string; choiceName: string; quantity?: number }[] {
+    if (json == null || typeof json !== "string") return [];
+    const s = String(json).trim();
+    if (!s || s[0] !== "[") return [];
+    try {
+      const parsed = JSON.parse(s);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(
+        (o): o is { groupName: string; choiceName: string; quantity?: number } =>
+          o &&
+          typeof o === "object" &&
+          typeof (o as { choiceName?: unknown }).choiceName === "string" &&
+          typeof (o as { groupName?: unknown }).groupName === "string"
+      );
+    } catch {
+      return [];
+    }
+  }
 
   // ── Data fetching ───────────────────────────────────────────────
 
@@ -410,20 +429,36 @@ export default function AdminTablesPage() {
                                   </span>
                                 </div>
                                 {o.items && o.items.length > 0 && (
-                                  <ul className="space-y-0.5">
-                                    {o.items.map((it, idx) => (
-                                      <li
-                                        key={`${it.name}-${idx}`}
-                                        className="flex justify-between text-[11px] text-stone-700"
-                                      >
-                                        <span className="truncate">
-                                          {it.quantity}× {it.name}
-                                        </span>
-                                        <span className="tabular-nums">
-                                          ${(it.price * it.quantity).toFixed(2)}
-                                        </span>
-                                      </li>
-                                    ))}
+                                  <ul className="space-y-1">
+                                    {o.items.map((it, idx) => {
+                                      const opts = parseOrderOptions(it.options_json);
+                                      return (
+                                        <li key={`${it.name}-${idx}`} className="text-[11px] text-stone-700">
+                                          <div className="flex justify-between">
+                                            <span className="truncate">
+                                              {it.quantity}× {it.name}
+                                            </span>
+                                            <span className="tabular-nums">
+                                              ${(it.price * it.quantity).toFixed(2)}
+                                            </span>
+                                          </div>
+                                          {opts.length > 0 && (
+                                            <ul className="mt-0.5 pl-3 space-y-0.5 text-[10px] text-stone-600">
+                                              {opts.map((opt, j) => {
+                                                const q = opt.quantity ?? 1;
+                                                const choice = q > 1 ? `${opt.choiceName} x${q}` : opt.choiceName;
+                                                return (
+                                                  <li key={j} className="flex items-start gap-1">
+                                                    <span className="mt-[2px] h-1 w-1 rounded-full bg-stone-400" />
+                                                    <span>{`${opt.groupName}: ${choice}`}</span>
+                                                  </li>
+                                                );
+                                              })}
+                                            </ul>
+                                          )}
+                                        </li>
+                                      );
+                                    })}
                                   </ul>
                                 )}
                                 {o.total != null && (

@@ -909,7 +909,7 @@ export async function updateOrderStatusWithTiming(
 /**
  * Reduce "completed" order data to essentials:
  * - keep totals and item name/price/qty for receipts + analytics
- * - remove options_json / notes and customer notes to avoid messy storage
+ * - clear free-text notes and customer notes to avoid messy storage
  */
 export async function pruneCompletedOrderDetails(restaurantId: number, orderId: number): Promise<void> {
   await prisma.order.updateMany({
@@ -918,7 +918,7 @@ export async function pruneCompletedOrderDetails(restaurantId: number, orderId: 
   });
   await prisma.orderItem.updateMany({
     where: { orderId },
-    data: { notes: null, optionsJson: null },
+    data: { notes: null },
   });
 }
 

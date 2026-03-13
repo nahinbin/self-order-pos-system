@@ -8,7 +8,9 @@ import Loader from "@/components/Loader";
 
 type OrderItem = { name: string; price: number; quantity: number; options_json?: string | null };
 
-function parseOrderOptions(json: unknown): { choiceName: string; priceModifier?: number; quantity?: number }[] {
+type ParsedOption = { groupName: string; choiceName: string; priceModifier?: number; quantity?: number };
+
+function parseOrderOptions(json: unknown): ParsedOption[] {
   if (json == null || typeof json !== "string") return [];
   const s = String(json).trim();
   if (!s || s[0] !== "[") return [];
@@ -16,17 +18,21 @@ function parseOrderOptions(json: unknown): { choiceName: string; priceModifier?:
     const parsed = JSON.parse(s);
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
-      (o): o is { choiceName: string; priceModifier?: number; quantity?: number } =>
-        o && typeof o === "object" && typeof (o as { choiceName?: unknown }).choiceName === "string"
+      (o): o is ParsedOption =>
+        o &&
+        typeof o === "object" &&
+        typeof (o as { choiceName?: unknown }).choiceName === "string" &&
+        typeof (o as { groupName?: unknown }).groupName === "string"
     );
   } catch {
     return [];
   }
 }
 
-function formatOptionLine(o: { choiceName: string; priceModifier?: number; quantity?: number }): string {
+function formatOptionLine(o: ParsedOption): string {
   const q = o.quantity ?? 1;
-  const label = q > 1 ? `${o.choiceName} x${q}` : o.choiceName;
+  const choice = q > 1 ? `${o.choiceName} x${q}` : o.choiceName;
+  const label = `${o.groupName}: ${choice}`;
   const extra = o.priceModifier && o.priceModifier > 0 ? ` (+$${(o.priceModifier * q).toFixed(2)})` : "";
   return label + extra;
 }
