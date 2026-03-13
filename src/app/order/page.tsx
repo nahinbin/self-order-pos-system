@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { io, type Socket } from "socket.io-client";
@@ -639,8 +640,15 @@ function OrderPageContent() {
                               }`}
                             >
                               {item.image_url && (
-                                <div className="w-24 sm:w-28 shrink-0 self-stretch bg-stone-100">
-                                  <img src={item.image_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                                <div className="w-24 sm:w-28 shrink-0 self-stretch bg-stone-100 relative">
+                                  <Image
+                                    src={item.image_url}
+                                    alt=""
+                                    fill
+                                    sizes="112px"
+                                    className="object-cover"
+                                    loading="lazy"
+                                  />
                                 </div>
                               )}
                               <div className="min-w-0 flex-1 py-3 px-3.5 flex flex-col justify-center">
