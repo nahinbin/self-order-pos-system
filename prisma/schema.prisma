@@ -15,6 +15,15 @@ model Restaurant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Display name shown in UIs (navbar, PDFs, etc.). Falls back to name if null.
+  displayName String?
+  /// Primary logo image URL (Cloudinary or local). Optional.
+  logoUrl     String?
+  /// Optional address/contact details for receipts and PDFs.
+  address     String?
+  phone       String?
+  receiptNote String?
+
   tables             RestaurantTable[]
   menuItems          MenuItem[]
   orders             Order[]

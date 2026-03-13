@@ -12,6 +12,11 @@ type MenuItem = {
   category: string;
 };
 
+type PublicSettings = {
+  displayName: string;
+  logoUrl: string | null;
+};
+
 function money(n: number) {
   return `$${n.toFixed(2)}`;
 }
@@ -20,6 +25,7 @@ export default function HomePage() {
   const [menu, setMenu] = useState<MenuItem[]>([]);
   const [menuLoading, setMenuLoading] = useState(true);
   const [isOpen, setIsOpen] = useState<boolean | null>(null);
+  const [branding, setBranding] = useState<PublicSettings | null>(null);
 
   const fetchMenu = useCallback(async () => {
     setMenuLoading(true);
@@ -42,6 +48,18 @@ export default function HomePage() {
       .then((r) => r.json())
       .then((d) => setIsOpen(d.open !== false))
       .catch(() => setIsOpen(null));
+    fetch("/api/admin/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setBranding({
+          displayName: data.displayName || data.name || "Our restaurant",
+          logoUrl: data.logoUrl ?? null,
+        });
+      })
+      .catch(() => {
+        /* ignore */
+      });
   }, [fetchMenu]);
 
   const categories = useMemo(
@@ -69,6 +87,22 @@ export default function HomePage() {
               <span className="text-xs font-semibold tracking-wide">
                 {isOpen ? "Open now" : "Currently closed"}
               </span>
+            </div>
+          )}
+          {(branding?.logoUrl || branding?.displayName) && (
+            <div className="flex flex-col items-center gap-2 mb-2">
+              {branding.logoUrl && (
+                <img
+                  src={branding.logoUrl}
+                  alt={branding.displayName || "Restaurant"}
+                  className="h-12 w-auto max-w-[180px] object-contain"
+                />
+              )}
+              {branding.displayName && (
+                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-amber-300">
+                  {branding.displayName}
+                </p>
+              )}
             </div>
           )}
           <h1 className="text-5xl sm:text-6xl font-black tracking-tight mb-3">
@@ -195,10 +229,21 @@ export default function HomePage() {
       {/* Footer */}
       <footer className="border-t border-stone-200 bg-white">
         <div className="max-w-3xl mx-auto px-5 py-6 flex items-center justify-between">
-          <p className="text-xs text-stone-400">Powered by Self Order</p>
+          <div className="flex items-center gap-2 min-w-0">
+            {branding?.logoUrl && (
+              <img
+                src={branding.logoUrl}
+                alt=""
+                className="h-6 w-auto max-w-[100px] object-contain shrink-0"
+              />
+            )}
+            <p className="text-xs text-stone-400 truncate">
+              {branding?.displayName || "Restaurant"}
+            </p>
+          </div>
           <Link
             href="/admin"
-            className="text-xs text-stone-400 hover:text-stone-600 transition"
+            className="text-xs text-stone-400 hover:text-stone-600 transition shrink-0"
           >
             Admin
           </Link>

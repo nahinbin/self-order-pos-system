@@ -366,7 +366,6 @@ export default function CashierPage() {
           },
         ];
       });
-      setCartOpen(true);
       setOptionModalItem(null);
     },
     []
@@ -1269,10 +1268,10 @@ export default function CashierPage() {
     cartOpen && (
       <div className="fixed inset-0 z-50">
         <div className="absolute inset-0 bg-black/40" onClick={() => setCartOpen(false)} />
-        <div className="absolute right-0 top-0 h-full w-full sm:w-[460px] bg-white shadow-2xl flex flex-col">
-          <div className="p-4 border-b border-stone-200 flex items-center justify-between">
+        <div className="absolute right-0 top-0 h-full w-full sm:min-w-[420px] sm:max-w-[90vw] sm:w-[560px] bg-white shadow-2xl flex flex-col">
+          <div className="p-5 border-b border-stone-200 flex items-center justify-between">
             <div>
-              <p className="text-base font-black text-stone-900">
+              <p className="text-lg font-black text-stone-900">
                 {activeTicketId ? `Ticket #${activeTicketId}` : "Cart"}
               </p>
               <p className="text-sm text-stone-500">
@@ -1303,10 +1302,10 @@ export default function CashierPage() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto p-4">
-            <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4 mb-4">
-              <p className="text-xs font-semibold text-stone-600">Amount due</p>
-              <p className="text-4xl font-black tracking-tight text-stone-900 mt-1">{money(subtotal)}</p>
+          <div className="flex-1 overflow-auto p-5">
+            <div className="rounded-2xl border border-stone-200 bg-stone-50 p-5 mb-5">
+              <p className="text-sm font-semibold text-stone-600">Amount due</p>
+              <p className="text-5xl font-black tracking-tight text-stone-900 mt-1">{money(subtotal)}</p>
               <p className="text-xs text-stone-500 mt-1">
                 {totalItems} items · {orderType === "dine_in" ? selectedTableName : orderType === "takeaway" ? "Takeaway" : "Delivery"}
               </p>
@@ -1451,31 +1450,31 @@ export default function CashierPage() {
                 <p className="text-sm mt-1">Add items from the menu.</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {cart.map((l) => (
-                  <div key={l.key} className="rounded-2xl border border-stone-200 p-3">
-                    <div className="flex items-start justify-between gap-2">
+                  <div key={l.key} className="rounded-2xl border border-stone-200 p-4">
+                    <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-semibold text-stone-900 truncate text-base">{l.name}</p>
+                        <p className="font-semibold text-stone-900 truncate text-lg">{l.name}</p>
                         {l.options_label ? <p className="text-sm text-stone-500 mt-0.5">{l.options_label}</p> : null}
                         <p className="text-sm text-stone-500 mt-0.5">{money(l.unit_price)} each</p>
                       </div>
-                      <div className="text-base font-black text-stone-900">{money(l.unit_price * l.quantity)}</div>
+                      <div className="text-lg font-black text-stone-900">{money(l.unit_price * l.quantity)}</div>
                     </div>
                     <div className="mt-3 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={() => updateQty(l.key, -1)}
-                          className="h-10 w-10 rounded-xl border border-stone-300 bg-white text-stone-800 text-xl"
+                          className="h-11 w-11 rounded-xl border border-stone-300 bg-white text-stone-800 text-xl"
                         >
                           −
                         </button>
-                        <span className="w-10 text-center font-black text-base">{l.quantity}</span>
+                        <span className="w-12 text-center font-black text-lg">{l.quantity}</span>
                         <button
                           type="button"
                           onClick={() => updateQty(l.key, 1)}
-                          className="h-10 w-10 rounded-xl border border-stone-300 bg-white text-stone-800 text-xl"
+                          className="h-11 w-11 rounded-xl border border-stone-300 bg-white text-stone-800 text-xl"
                         >
                           +
                         </button>
@@ -1494,7 +1493,7 @@ export default function CashierPage() {
             )}
           </div>
 
-          <div className="border-t border-stone-200 p-4">
+          <div className="border-t border-stone-200 p-5">
             <label className="text-sm font-semibold text-stone-700">Notes (optional)</label>
             <textarea
               value={customerNotes}

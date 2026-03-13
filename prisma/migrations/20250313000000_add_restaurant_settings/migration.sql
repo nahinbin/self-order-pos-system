@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE "Restaurant" ADD COLUMN IF NOT EXISTS "displayName" TEXT;
+ALTER TABLE "Restaurant" ADD COLUMN IF NOT EXISTS "logoUrl" TEXT;
+ALTER TABLE "Restaurant" ADD COLUMN IF NOT EXISTS "address" TEXT;
+ALTER TABLE "Restaurant" ADD COLUMN IF NOT EXISTS "phone" TEXT;
+ALTER TABLE "Restaurant" ADD COLUMN IF NOT EXISTS "receiptNote" TEXT;
